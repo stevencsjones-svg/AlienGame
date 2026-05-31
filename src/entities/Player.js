@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
-import { PLAYER, COLORS } from '../constants.js';
+import { PLAYER, COLORS, SHIELD_INVINCIBILITY_MS, SHIELD_BREAK_SHAKE } from '../constants.js';
 import PlayerVisuals from './PlayerVisuals.js';
+import SFX from '../audio/SFX.js';
 
 // =============================================================================
 // Player
@@ -18,6 +19,13 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     // by PlayerVisuals as a layered geometric character.
     this.setAlpha(0);
     this.visuals = new PlayerVisuals(scene, this);
+
+    // Attack hitbox: an invisible static-body rectangle in front of the player,
+    // enabled ONLY during the attack window (see attack()). Public so the scene
+    // can register an overlap against the enemy group.
+    this.attackHitbox = scene.add.rectangle(x, y, 36, 24).setVisible(false);
+    scene.physics.add.existing(this.attackHitbox, true); // true = static body
+    this.attackHitbox.body.enable = false;
 
     // Collide with the left / right / top of the world. The bottom is left open
     // so the player can fall into pits (handled as a death in Game.update).
@@ -50,6 +58,12 @@ export default class Player extends Phaser.GameObjects.Rectangle {
 
     // Speed progression multiplier (driven by the scene; see setSpeedMultiplier).
     this.speedMultiplier = 1;
+
+    // Abilities. hasAttack defaults true so Level 1 is unchanged; Level 2 turns
+    // it off at start and grants it via the attack ability pickup.
+    this.hasAttack = true;
+    this.hasShield = false;
+    this.invincibleUntil = 0; // ms timestamp; no enemy damage before this
 
     // ---- Input ----
     const kb = scene.input.keyboard;
@@ -115,6 +129,7 @@ export default class Player extends Phaser.GameObjects.Rectangle {
       this.jumpsUsed = 0;
       this.hasJumped = false;
     }
+    if (justLanded) SFX.jump_land(); // soft thud (self-throttled to 100ms)
 
     // Coyote time: open the window when we walk off a ledge without jumping.
     if (justLeftGround && !this.hasJumped) {
@@ -195,8 +210,8 @@ export default class Player extends Phaser.GameObjects.Rectangle {
       }
     }
 
-    // ---- Attack ----
-    if (Phaser.Input.Keyboard.JustDown(k.z) && !this.attackActive) {
+    // ---- Attack (gated by the attack ability) ----
+    if (this.hasAttack && Phaser.Input.Keyboard.JustDown(k.z) && !this.attackActive) {
       this.attack();
     }
   }
@@ -207,10 +222,10 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.jumpsUsed++;
     this.hasJumped = true;
     if (this.jumpsUsed === 1) {
-      // AUDIO: jump
+      SFX.jump();
       this.visuals.spawnJumpBurst(false);
     } else {
-      // AUDIO: double jump
+      SFX.doubleJump();
       this.visuals.spawnJumpBurst(true);
     }
   }
@@ -238,7 +253,7 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.body.setVelocityX(PLAYER.DASH_SPEED * this.facing);
     this.body.setVelocityY(0);
     this.body.setAllowGravity(false);
-    // AUDIO: dash
+    SFX.dash();
 
     // Subtle RGB-split hint on the dash burst.
     if (this.scene.chromaticHit) this.scene.chromaticHit(0.2, 150);
@@ -250,15 +265,43 @@ export default class Player extends Phaser.GameObjects.Rectangle {
   }
 
   // ---- Attack ----------------------------------------------------------------
-  // Spawns a short-lived visual blade in front of the player. No effect on
-  // enemies yet — purely the visual. Enemy death will be wired up later.
+  // Spawns a short-lived visual blade in front of the player and enables the
+  // attack hitbox (positioned in front, facing-aware) for the attack window.
   attack() {
     this.attackActive = true;
-    // AUDIO: attack
+    SFX.attack();
     this.visuals.spawnAttack(this.facing);
+
+    // Move the hitbox in front of the player and enable it for the window.
+    this.attackHitbox.setPosition(this.x + this.facing * 18, this.y);
+    this.attackHitbox.body.enable = true;
+    this.attackHitbox.body.updateFromGameObject();
+
     this.scene.time.delayedCall(PLAYER.ATTACK_DURATION, () => {
       this.attackActive = false;
+      this.attackHitbox.body.enable = false;
     });
+  }
+
+  // ---- Damage routing (Level 2 enemy contact goes through here) -------------
+  // Shield absorbs one hit; brief i-frames prevent instant double-death.
+  takeHit() {
+    if (this.scene.time.now < this.invincibleUntil) return; // invincible
+    if (this.hasShield) {
+      this.breakShield();
+      return;
+    }
+    this.die();
+  }
+
+  breakShield() {
+    this.hasShield = false;
+    this.invincibleUntil = this.scene.time.now + SHIELD_INVINCIBILITY_MS;
+    // AUDIO: shield break — FL Studio
+    this.visuals.breakShield();
+    if (this.scene.shakeScreen) this.scene.shakeScreen(200, SHIELD_BREAK_SHAKE);
+    if (this.scene.chromaticHit) this.scene.chromaticHit(0.3, 200);
+    if (this.scene.flashScreen) this.scene.flashScreen(0x00cc66, 0.4, 200);
   }
 
   // ---- Death & respawn -------------------------------------------------------
@@ -268,7 +311,7 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.isDashing = false;
     this.body.setVelocity(0, 0);
     this.body.setAllowGravity(false);
-    // AUDIO: player death
+    SFX.death();
 
     // ---- Frame 0: full juice stack ----
     if (this.scene.hitPause) this.scene.hitPause(80);            // freeze

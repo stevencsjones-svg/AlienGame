@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ENEMY, COLORS } from '../constants.js';
+import SFX from '../audio/SFX.js';
 
 // =============================================================================
 // Seeker
@@ -23,8 +24,11 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
 
     this.body.setAllowGravity(false);
 
-    // Chase speed is configurable per level (Level 1 uses a slower value).
+    // Chase speed / detection are configurable per level (Level 1 is slower /
+    // shorter-ranged). Defaults preserve the original Level 1 behaviour.
     this.speed = config.speed || ENEMY.SEEKER_SPEED;
+    this.aggro = config.aggro || ENEMY.SEEKER_AGGRO;
+    this.deaggro = config.deaggro || (this.aggro + (ENEMY.SEEKER_DEAGGRO - ENEMY.SEEKER_AGGRO));
 
     this.player = player;
     this.startX = x;
@@ -54,9 +58,9 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
     const dist = Phaser.Math.Distance.Between(this.x, this.y, p.x, p.y);
 
     // ---- Chase logic (UNCHANGED behaviour) ----
-    if (!this.chasing && dist <= ENEMY.SEEKER_AGGRO) {
+    if (!this.chasing && dist <= this.aggro) {
       this.activate();
-    } else if (this.chasing && dist >= ENEMY.SEEKER_DEAGGRO) {
+    } else if (this.chasing && dist >= this.deaggro) {
       this.chasing = false;
       this.eye.setFillStyle(0xffffff, 0.9); // eye back to white when calm
     }
@@ -103,7 +107,7 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
 
   activate() {
     this.chasing = true;
-    // AUDIO: (seeker activate)
+    SFX.enemyAlert();
 
     // Juice: brief freeze + RGB split as it locks on.
     if (this.scene.hitPause) this.scene.hitPause(50);
@@ -143,5 +147,36 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
   // Record which way the seeker is travelling (the container is flipped in update).
   faceToward(targetX) {
     this.facingSign = targetX < this.x ? -1 : 1;
+  }
+
+  // Killed by the player's attack: white flash, particle burst, shake, destroy.
+  die() {
+    if (this.dead) return;
+    this.dead = true;
+    this.active = false;               // manual update loops skip it (see scene)
+    if (this.body) this.body.enable = false;
+    this.setFillStyle(0xffffff);
+    this.setAlpha(1);
+    this.setDepth(6);
+    const dx = this.x;
+    const dy = this.y;
+    this.scene.time.delayedCall(80, () => {
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const particle = this.scene.add.rectangle(dx, dy, 4, 4, 0xbf00ff).setDepth(6);
+        this.scene.tweens.add({
+          targets: particle,
+          x: dx + Math.cos(angle) * 40,
+          y: dy + Math.sin(angle) * 40,
+          alpha: 0,
+          duration: 300,
+          onComplete: () => particle.destroy(),
+        });
+      }
+      this.scene.cameras.main.shake(60, 0.004);
+      // AUDIO: enemy death placeholder
+      if (this.gfx) this.gfx.destroy();
+      this.destroy();
+    });
   }
 }

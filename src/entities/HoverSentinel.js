@@ -97,4 +97,36 @@ export default class HoverSentinel extends Phaser.GameObjects.Rectangle {
       this.shadow.setScale(1 + 0.25 * offset);
     }
   }
+
+  // Killed by the player's attack: white flash, particle burst, shake, destroy.
+  die() {
+    if (this.dead) return;
+    this.dead = true;
+    this.active = false;               // manual update loops skip it (see scene)
+    if (this.body) this.body.enable = false;
+    this.setFillStyle(0xffffff);
+    this.setAlpha(1);
+    this.setDepth(6);
+    const dx = this.x;
+    const dy = this.y;
+    this.scene.time.delayedCall(80, () => {
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const particle = this.scene.add.rectangle(dx, dy, 4, 4, 0xbf00ff).setDepth(6);
+        this.scene.tweens.add({
+          targets: particle,
+          x: dx + Math.cos(angle) * 40,
+          y: dy + Math.sin(angle) * 40,
+          alpha: 0,
+          duration: 300,
+          onComplete: () => particle.destroy(),
+        });
+      }
+      this.scene.cameras.main.shake(60, 0.004);
+      // AUDIO: enemy death placeholder
+      if (this.gfx) this.gfx.destroy();
+      if (this.shadow) this.shadow.destroy();
+      this.destroy();
+    });
+  }
 }

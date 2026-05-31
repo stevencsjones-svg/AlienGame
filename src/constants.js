@@ -119,3 +119,54 @@ export const CRT = {
   CRT_VIGNETTE: 0.28,   // edge darkening strength
   CRT_CURVATURE: 6.0,   // barrel-distortion divisor (higher = flatter)
 };
+
+// ---- Level 2: Dark Jade palette ---------------------------------------------
+export const LEVEL2 = {
+  BG: 0x040808,
+  PLATFORM: 0x00cc66,
+  PLATFORM_DIM: 0x003322,
+  PLAYER: 0xc8ffd4,
+  ENEMY: 0x880099,       // darker purple (note: enemy classes keep their own colour)
+  COLLECTIBLE: 0x00aacc, // muted cyan
+  ACCENT: 0xff6a00,
+  AMBIENT: 0x112211,     // lighting ambient
+  WATER: 0x001a0d,
+  FOG: 0x00cc66,
+};
+
+// Level 2 world dimensions (large U-shaped descent + ascent).
+export const LEVEL2_WORLD = { WIDTH: 14000, HEIGHT: 6000 };
+
+// Bioluminescent Deep City parallax theme (passed to ParallaxBackground for
+// Level 2). The `theme` flag switches ParallaxBackground to its organic
+// drawing routine; `worldWidth` sizes the layer RenderTextures for the wide
+// world. The layer fills below are unused by the deepCity routine (which uses
+// its own organic colours) but kept so the palette shape stays consistent.
+export const LEVEL2_PARALLAX = {
+  theme: 'deepCity',
+  worldWidth: LEVEL2_WORLD.WIDTH,
+  layer1: { fill: '#040808', opacity: 0.5 },
+  layer2: { fill: '#071a0d', opacity: 0.65 },
+  layer3: { fill: '#040e08', opacity: 0.9 },
+  fog: { fill: '#00cc66', opacity: 0.03 },
+};
+
+// ---- Misc tuning (Level 2 systems) ------------------------------------------
+export const MOVING_PLATFORM_GLOW_OPACITY = 0.20;
+export const SHIELD_RING_RADIUS_X = 20;
+export const SHIELD_RING_RADIUS_Y = 26;
+export const SHIELD_INVINCIBILITY_MS = 800;
+export const SHIELD_BREAK_SHAKE = 0.008;
+export const ABILITY_PANEL_HOLD_MS = 2000;
+export const PLUNGE_SHAFT_X = 2900;
+export const ASCENT_SHAFT_X = 800;
+export const SEEKER_WARNING_TEXT = 'HOSTILE UNIT DETECTED';
+export const DOUBLE_TAP_WINDOW = 200; // ms (matches PLAYER.DASH_DOUBLE_TAP_WINDOW)
+
+// Collectible totals per level (HUD reads scene.totalCollectibles; falls back here).
+export const LEVEL2_COLLECTIBLE_COUNT = 35;
+
+// ---- Audio (procedural SFX via Tone.js) -------------------------------------
+export const SFX_MASTER_VOLUME = -6;   // dB on Tone's master destination
+export const SFX_LAND_THROTTLE_MS = 100; // min gap between landing thuds
+export const SFX_ENABLED = true;

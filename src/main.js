@@ -3,6 +3,7 @@ import { VIEW, GRAVITY, BG_HEX } from './constants.js';
 import Preload from './scenes/Preload.js';
 import MainMenu from './scenes/MainMenu.js';
 import Game from './scenes/Game.js';
+import Level2 from './scenes/Level2.js';
 import UI from './scenes/UI.js';
 import ChromaticAberrationPipeline from './pipelines/ChromaticAberrationPipeline.js';
 import BloomPipeline from './pipelines/BloomPipeline.js';
@@ -32,8 +33,8 @@ const config = {
   },
   // Custom post-FX pipelines (WebGL).
   pipeline: { ChromaticAberrationPipeline, BloomPipeline, CRTPipeline },
-  // Preload boots -> MainMenu -> Game (which launches the UI overlay).
-  scene: [Preload, MainMenu, Game, UI],
+  // Preload boots -> MainMenu -> Game -> Level2 (each launches the UI overlay).
+  scene: [Preload, MainMenu, Game, Level2, UI],
 };
 
 // eslint-disable-next-line no-new

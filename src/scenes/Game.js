@@ -12,6 +12,7 @@ import ChromaticAberrationPipeline from '../pipelines/ChromaticAberrationPipelin
 import DiegeticHUD from '../ui/DiegeticHUD.js';
 import DataNoise from '../fx/DataNoise.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
+import SFX from '../audio/SFX.js';
 
 // =============================================================================
 // Level data
@@ -203,7 +204,7 @@ export default class Game extends Phaser.Scene {
 
     // Pause / menu keys.
     this.pauseKeys = this.input.keyboard.addKeys({
-      esc: 'ESC', up: 'UP', down: 'DOWN', w: 'W', s: 'S', space: 'SPACE', enter: 'ENTER',
+      esc: 'ESC', up: 'UP', down: 'DOWN', w: 'W', s: 'S', space: 'SPACE', enter: 'ENTER', m: 'M',
     });
 
     // ---- Light sources (player + portal + 5 even zone lights) ----
@@ -429,6 +430,9 @@ export default class Game extends Phaser.Scene {
     // Layered, animated dimensional gateway. Its `.trigger` (inner-core sized
     // static body) is what the player must overlap to finish the level.
     this.portal = new ExitPortal(this, PORTAL.x, PORTAL.y);
+    // Continuous portal hum while the level runs; stopped on complete / shutdown.
+    this.portalOsc = SFX.portalHum();
+    this.events.once('shutdown', () => { if (this.portalOsc) this.portalOsc.stop(); });
   }
 
   // ---- Colliders & overlaps ---------------------------------------------------
@@ -447,6 +451,11 @@ export default class Game extends Phaser.Scene {
 
     // Exit portal (overlap the inner-core trigger).
     this.physics.add.overlap(this.player, this.portal.trigger, this.onLevelComplete, null, this);
+
+    // Attack: the player's hitbox kills any enemy it overlaps (during the
+    // attack window, when the hitbox body is enabled).
+    this.enemies = this.add.group([...this.drones, ...this.sentinels, ...this.seekers]);
+    this.physics.add.overlap(this.player.attackHitbox, this.enemies, (hb, enemy) => enemy.die());
 
     // Checkpoint.
     this.physics.add.overlap(this.player, this.checkpoint, this.onCheckpoint, null, this);
@@ -471,7 +480,7 @@ export default class Game extends Phaser.Scene {
   onCheckpoint() {
     if (this.checkpointActive) return;
     this.checkpointActive = true;
-    // AUDIO: checkpoint
+    SFX.checkpoint();
 
     // Stays bright permanently once activated.
     this.checkpoint.setFillStyle(COLORS.ACCENT, 1);
@@ -522,7 +531,7 @@ export default class Game extends Phaser.Scene {
       c.extras.forEach((e) => { this.tweens.killTweensOf(e); e.destroy(); });
     }
     c.destroy();
-    // AUDIO: collect item
+    if (hidden) SFX.collectSecret(); else SFX.collect();
     this.spawnPickupEffect(x, y, hidden);
 
     if (hidden) {
@@ -667,7 +676,8 @@ export default class Game extends Phaser.Scene {
   onLevelComplete() {
     if (this.levelDone) return;
     this.levelDone = true;
-    // AUDIO: level complete
+    // AUDIO: level complete — FL Studio
+    if (this.portalOsc) this.portalOsc.stop();
 
     // Freeze the player.
     this.player.frozen = true;
@@ -692,8 +702,14 @@ export default class Game extends Phaser.Scene {
     // 4. Screen shake.
     this.shakeScreen(400, 0.015);
 
-    // 5. Level-complete overlay after a short delay.
-    this.time.delayedCall(600, () => this.showLevelCompleteOverlay());
+    // 5. After a short beat, fade to black and hand off to Level 2.
+    this.time.delayedCall(600, () => {
+      this.cameras.main.fadeOut(500, 0, 0, 0);
+      this.cameras.main.once('camerafadeoutcomplete', () => {
+        this.scene.start('Level2');
+        this.scene.stop('Game');
+      });
+    });
   }
 
   showLevelCompleteOverlay() {
@@ -762,6 +778,9 @@ export default class Game extends Phaser.Scene {
 
   // ---- Main loop --------------------------------------------------------------
   update(time, delta) {
+    // M toggles all SFX.
+    if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.m)) SFX.toggleMute();
+
     // ESC toggles pause (not after the level is finished).
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
       this.togglePause();
@@ -773,9 +792,9 @@ export default class Game extends Phaser.Scene {
 
     this.background.update();
     this.player.update(time, delta);
-    for (const d of this.drones) d.update(time, delta);
-    for (const s of this.sentinels) s.update(time, delta);
-    for (const s of this.seekers) s.update(time, delta);
+    for (const d of this.drones) if (d.active) d.update(time, delta);
+    for (const s of this.sentinels) if (s.active) s.update(time, delta);
+    for (const s of this.seekers) if (s.active) s.update(time, delta);
     this.portal.update(time, delta);
 
     // ---- Dynamic lights ----

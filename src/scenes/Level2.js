@@ -1,0 +1,657 @@
+import Phaser from 'phaser';
+import {
+  LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS,
+} from '../constants.js';
+import Player from '../entities/Player.js';
+import GroundDrone from '../entities/GroundDrone.js';
+import HoverSentinel from '../entities/HoverSentinel.js';
+import Seeker from '../entities/Seeker.js';
+import ExitPortal from '../entities/ExitPortal.js';
+import MovingPlatform from '../entities/MovingPlatform.js';
+import AbilityPickup from '../entities/AbilityPickup.js';
+import ShieldPickup from '../entities/ShieldPickup.js';
+import ParallaxBackground from '../background/ParallaxBackground.js';
+import ChromaticAberrationPipeline from '../pipelines/ChromaticAberrationPipeline.js';
+import DiegeticHUD from '../ui/DiegeticHUD.js';
+import { buildPlatformVisual } from '../entities/platformVisual.js';
+import { createCollectible, spawnPickupShards } from '../entities/collectible.js';
+import { makeGlassPanel } from '../ui/glassPanel.js';
+import SFX from '../audio/SFX.js';
+
+const P = LEVEL2;
+const W = LEVEL2_WORLD.WIDTH;
+const H = LEVEL2_WORLD.HEIGHT;
+
+// =============================================================================
+// LEVEL DATA — a 14000x6000 U-shaped run:
+//   S1 (x0–4000, right) → S2 (x4000–8000, right, low ceiling + attack pickup)
+//   → S3 (plunge shaft, x7600–8400, DOWN) → S4 (the deep, x800–7800, LEFT)
+//   → S5 (ascent shaft, x800–1600, UP) → exit portal at the top.
+// Platform data is [centreX, topY, w, h]. Moving platforms are
+// [startX, topY, range, speed] (all horizontal). Enemies/collectibles are
+// [x, y]. Ground drones get a y just above their floor so they settle onto it.
+// =============================================================================
+
+const GROUND = [
+  [3900, 660, 7800, 20],   // S1+S2 floor (x0–7800; floor ends at the plunge lip)
+  [7000, 5660, 14000, 20], // S4 floor (full width)
+];
+
+const PLATFORMS = [
+  // --- Section 1 (x0–4000) ---
+  [180, 560, 140, 14], [400, 500, 120, 14], [600, 560, 160, 14], [820, 480, 140, 14],
+  [1060, 540, 120, 14], [1260, 460, 160, 14], [1500, 520, 140, 14], [1720, 460, 120, 14],
+  [1960, 540, 160, 14], [2200, 480, 140, 14], [2420, 540, 120, 14], [2640, 460, 160, 14],
+  [2880, 520, 140, 14], [3100, 460, 120, 14], [3320, 540, 160, 14], [3520, 480, 140, 14],
+  [3700, 540, 120, 14], [3860, 460, 160, 14],
+  // --- Section 2 (x4000–8000) ---
+  [4100, 560, 120, 14], [4300, 500, 100, 14], [4480, 560, 140, 14], [4680, 480, 120, 14],
+  [4880, 540, 100, 14], [5060, 480, 140, 14], [5260, 540, 120, 14], [5460, 480, 100, 14],
+  [5640, 540, 140, 14], [5840, 480, 120, 14], [6040, 540, 100, 14], [6240, 480, 140, 14],
+  [6440, 540, 120, 14], [6640, 480, 100, 14], [6840, 540, 140, 14], [7040, 480, 120, 14],
+  [7240, 540, 100, 14], [7460, 480, 140, 14],
+  // --- Section 3 (plunge shaft, zigzag) ---
+  [7620, 900, 160, 14], [8220, 1100, 160, 14], [7620, 1300, 160, 14], [8220, 1500, 160, 14],
+  [7620, 1700, 160, 14], [8220, 1900, 160, 14], [7620, 2100, 160, 14], [8220, 2300, 160, 14],
+  [7620, 2500, 160, 14], [8220, 2700, 160, 14], [7620, 2900, 160, 14], [8220, 3100, 160, 14],
+  [7620, 3300, 160, 14], [8220, 3500, 160, 14], [7620, 3700, 160, 14], [8220, 3900, 160, 14],
+  [7620, 4100, 160, 14], [8220, 4300, 160, 14], [7620, 4500, 160, 14], [8220, 4700, 160, 14],
+  [7620, 4900, 160, 14], [8220, 5100, 160, 14], [7620, 5300, 160, 14], [7900, 5500, 200, 14],
+  // --- Section 4 (the deep, right to left) ---
+  [7600, 5560, 160, 14], [7340, 5500, 140, 14], [7080, 5560, 160, 14], [6800, 5500, 140, 14],
+  [6520, 5560, 160, 14], [6240, 5500, 140, 14], [5960, 5560, 160, 14], [5680, 5500, 140, 14],
+  [5400, 5560, 160, 14], [5120, 5500, 140, 14], [4840, 5560, 160, 14], [4560, 5500, 140, 14],
+  [4280, 5560, 160, 14], [4000, 5500, 140, 14], [3720, 5560, 160, 14], [3440, 5500, 140, 14],
+  [3160, 5560, 160, 14], [2880, 5500, 140, 14], [2600, 5560, 160, 14], [2320, 5500, 140, 14],
+  [2040, 5560, 160, 14], [1200, 5560, 160, 14],
+  // --- Section 5 (ascent shaft, zigzag) ---
+  [820, 5400, 160, 14], [1420, 5200, 160, 14], [820, 5000, 160, 14], [1420, 4800, 160, 14],
+  [820, 4600, 160, 14], [1420, 4400, 160, 14], [820, 4200, 160, 14], [1420, 4000, 160, 14],
+  [820, 3800, 160, 14], [1420, 3600, 160, 14], [820, 3400, 160, 14], [1420, 3200, 160, 14],
+  [820, 3000, 160, 14], [1420, 2800, 160, 14], [820, 2600, 160, 14], [1420, 2400, 160, 14],
+  [820, 2200, 160, 14], [1420, 2000, 160, 14], [820, 1800, 160, 14], [1420, 1600, 160, 14],
+  [820, 1400, 160, 14], [1420, 1200, 160, 14], [820, 1000, 160, 14], [1420, 800, 160, 14],
+  [820, 600, 160, 14], [1100, 440, 200, 14],
+];
+
+// [startX, topY, range, speed] — all horizontal.
+const MOVERS = [
+  [500, 580, 200, 55], [1400, 540, 300, 70], [2800, 500, 300, 60],   // S1
+  [4600, 580, 300, 65], [6400, 560, 300, 75],                        // S2
+  [7620, 1000, 600, 45], [7620, 2600, 600, 55], [7620, 4200, 600, 65], // S3
+  [6600, 5540, 300, 55], [4100, 5540, 300, 65], [2000, 5540, 300, 75], // S4
+  [820, 4600, 600, 50], [820, 2200, 600, 60],                        // S5
+];
+
+// Ground drones [x, y] — y sits just above the floor so they settle on it.
+const DRONES = [
+  [300, 640], [800, 640], [1500, 640], [2400, 640], [3200, 640],                 // S1
+  [4300, 640], [4800, 640], [5200, 640], [5700, 640], [6200, 640], [6700, 640], [7200, 640], // S2
+  [7200, 5640], [6400, 5640], [5600, 5640], [4800, 5640], [2800, 5640], [1800, 5640], // S4
+];
+
+const SENTINELS = [
+  [700, 420], [1800, 400], [3000, 420],                              // S1
+  [4600, 440], [5400, 420], [6200, 440], [7000, 420],                // S2
+  [8000, 820], [8000, 1620], [8000, 2420], [8000, 3220], [8000, 4020], [8000, 4820], // S3
+  [6800, 5420], [5200, 5400], [2400, 5420],                          // S4
+  [1200, 5320], [1200, 4720], [1200, 4120], [1200, 3520], [1200, 2920], [1200, 2320], [1200, 1720], [1200, 1120], // S5
+];
+
+// 35 regular collectibles.
+const COLLECTIBLES = [
+  [280, 520], [700, 440], [1100, 500], [1900, 420], [2600, 500], [3400, 420], [3800, 500],   // S1 (7)
+  [4200, 520], [4900, 440], [5500, 500], [6100, 440], [6800, 500], [7400, 440],              // S2 (6)
+  [8000, 980], [8000, 1780], [8000, 2580], [8000, 3380], [8000, 4180], [8000, 4980],         // S3 (6)
+  [7400, 5460], [6600, 5460], [5800, 5460], [5000, 5460], [4200, 5460], [3000, 5460], [1800, 5460], [1000, 5460], // S4 (8)
+  [1200, 5100], [1200, 4500], [1200, 3900], [1200, 3300], [1200, 2700], [1200, 2100], [1200, 1500], [1200, 900],  // S5 (8)
+];
+// 3 secret collectibles (orange).
+const SECRETS = [[7460, 360], [7660, 5180], [840, 500]];
+
+// Camera lerp per section.
+const CAM_LERP = {
+  horizontal: [0.1, 0.08],
+  plunge: [0.05, 0.15],
+  deep: [0.1, 0.05],
+  ascent: [0.05, 0.15],
+};
+
+export default class Level2 extends Phaser.Scene {
+  constructor() {
+    super('Level2');
+  }
+
+  create() {
+    this.cameras.main.fadeIn(600, 0, 0, 0);
+    this.physics.world.setBounds(0, 0, W, H);
+    this.cameras.main.setBounds(0, 0, W, H);
+
+    // ---- State ----
+    this.collectedCount = 0;
+    this.secretsFound = 0;
+    this.totalCollectibles = 35; // HUD reads this
+    this.levelDone = false;
+    this.reachedSection4 = false;
+    this.cinematicDone = false;
+    this.cameraLocked = false;
+    this.platforms = [];
+    this.movers = [];
+    this.movingBodies = [];
+    this.collectibles = [];
+    this.drones = [];
+    this.sentinels = [];
+    this.seekers = [];
+    this.dust = [];
+    this.dustTimer = 0;
+    this.respawnX = 100;
+    this.respawnY = 580;
+
+    // ---- Post-FX (Bloom -> Chromatic -> CRT) ----
+    if (this.renderer && this.renderer.type === Phaser.WEBGL) {
+      this.cameras.main.setPostPipeline('BloomPipeline');
+      this.cameras.main.setPostPipeline(ChromaticAberrationPipeline);
+      this.cameras.main.setPostPipeline('CRTPipeline');
+    }
+
+    // ---- Lighting ----
+    this.lights.enable();
+    this.lights.setAmbientColor(P.AMBIENT);
+
+    // ---- Background (Bioluminescent Deep City) ----
+    this.background = new ParallaxBackground(this, LEVEL2_PARALLAX);
+
+    // ---- Section dressing (walls, overlays, water, signs) ----
+    this.buildDressing();
+
+    // ---- Geometry ----
+    GROUND.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
+    PLATFORMS.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
+    MOVERS.forEach(([sx, ty, range, speed]) => {
+      const mp = new MovingPlatform(this, sx, ty, 120, 14, 'x', range, speed, P);
+      this.movers.push(mp);
+      this.movingBodies.push(mp.bodyRect);
+    });
+
+    // Section 4 water reflections (visual, below the waterline).
+    this.buildReflections();
+
+    // ---- Player (starts WITHOUT attack) ----
+    this.player = new Player(this, this.respawnX, this.respawnY);
+    this.player.hasAttack = false;
+
+    // ---- Route seals (contain the shafts until earned) ----
+    this.buildSeals();
+
+    // ---- Pickups ----
+    this.abilityPickup = new AbilityPickup(this, 4100, 610, 'attack', 'ATTACK', 'ATTACK UNLOCKED\nPress Z to attack');
+    this.shieldPickup = new ShieldPickup(this, 8000, 5380);
+
+    // ---- Enemies ----
+    DRONES.forEach(([x, y]) => this.drones.push(new GroundDrone(this, x, y)));
+    SENTINELS.forEach(([x, y]) => this.sentinels.push(new HoverSentinel(this, x, y)));
+    this.seekers.push(new Seeker(this, 3600, 5620, this.player, { speed: ENEMY.SEEKER_SPEED_L1, aggro: 300 }));
+
+    // ---- Collectibles ----
+    COLLECTIBLES.forEach(([x, y]) => this.collectibles.push(createCollectible(this, x, y, P.COLLECTIBLE, false)));
+    SECRETS.forEach(([x, y]) => this.collectibles.push(createCollectible(this, x, y, 0xff6a00, true)));
+
+    // ---- Portal: deep inside the sealed ascent shaft (the player climbs past
+    // it after entering Section 5 from below). Invisible + inert until the
+    // route is complete (reachedSection4). Its visual parts are wrapped in a
+    // container so a single alpha gates the whole portal cleanly. ----
+    this.portal = new ExitPortal(this, 1100, 5100);
+    this.portal.glow.setPosition(1100, 5100); // glow tracks the portal (it was hard-coded to y400)
+    this.portalGroup = this.add.container(0, 0, this.portal.parts).setDepth(3);
+    this.portalGroup.setAlpha(0);
+    this.portal.active = false;          // stop particle/scan animation
+    this.portal.trigger.body.enable = false; // overlap can't fire yet
+    this.portalRevealed = false;
+    this.add.text(1100, 5020, 'YOU MADE IT', { fontFamily: 'monospace', fontSize: '10px', color: '#00cc66' })
+      .setOrigin(0.5).setAlpha(0.4).setDepth(4).setVisible(false).setName('portalText');
+
+    // ---- Colliders ----
+    this.physics.add.collider(this.player, this.platforms);
+    this.physics.add.collider(this.player, this.movingBodies);
+    this.physics.add.collider(this.player, this.sealBodies);
+    this.physics.add.collider(this.drones, this.platforms);
+    this.physics.add.overlap(this.player, this.drones, this.onPlayerHit, null, this);
+    this.physics.add.overlap(this.player, this.sentinels, this.onPlayerHit, null, this);
+    this.physics.add.overlap(this.player, this.seekers, this.onPlayerHit, null, this);
+    this.physics.add.overlap(this.player, this.collectibles, this.onCollect, null, this);
+    this.physics.add.overlap(this.player, this.abilityPickup.trigger, this.onAbility, null, this);
+    this.physics.add.overlap(this.player, this.shieldPickup.trigger, this.onShield, null, this);
+    this.physics.add.overlap(this.player, this.portal.trigger, this.onLevelComplete, null, this);
+
+    // Attack: the player's hitbox kills any enemy it overlaps.
+    this.enemies = this.add.group([...this.drones, ...this.sentinels, ...this.seekers]);
+    this.physics.add.overlap(this.player.attackHitbox, this.enemies, (hb, enemy) => enemy.die());
+
+    // ---- Lights (player + portal + 6 zone) = 8, within Light2D's budget ----
+    this.playerLight = this.lights.addLight(0, 0, 360).setColor(P.PLATFORM).setIntensity(1.4);
+    this.portalLight = this.lights.addLight(1100, 5100, 240).setColor(P.ACCENT).setIntensity(0);
+    [[2000, 560], [5800, 520], [8000, 2500], [8000, 5000], [4400, 5500], [1200, 3000]].forEach(([x, y]) => {
+      this.lights.addLight(x, y, 1400).setColor(P.COLLECTIBLE).setIntensity(0.5);
+    });
+
+    // ---- Audio ----
+    this.mKey = this.input.keyboard.addKey('M');
+    this.events.once('shutdown', () => { if (this.portalOsc) this.portalOsc.stop(); });
+
+    // ---- HUD ----
+    this.diegeticHUD = new DiegeticHUD(this, this.player);
+    if (!this.scene.isActive('UI')) this.scene.launch('UI');
+
+    // ---- Camera ----
+    this.cameras.main.startFollow(this.player, true, CAM_LERP.horizontal[0], CAM_LERP.horizontal[1]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Dressing: shaft walls, depth overlays, water, neon/warning signs.
+  // `rect()` treats x,y as the TOP-LEFT corner (matches the spec's geometry).
+  // ---------------------------------------------------------------------------
+  buildDressing() {
+    const rect = (left, top, w, h, color, alpha, depth) =>
+      this.add.rectangle(left + w / 2, top + h / 2, w, h, color, alpha).setDepth(depth);
+
+    // --- Section 2 low ceiling (visual) ---
+    rect(4000, 380, 4000, 44, 0x001a0d, 1, 1.3);
+
+    // --- Plunge shaft (S3): walls + entry signals + progressive darkening ---
+    rect(7600, 660, 10, 4940, P.PLATFORM, 0.15, 1.4);  // left wall
+    rect(8390, 660, 10, 4940, P.PLATFORM, 0.15, 1.4);  // right wall
+    rect(7798, 640, 2, 22, P.PLATFORM, 0.9, 1.6);      // bright lip on the last floor tile
+    // Neon "▼ SHAFT B7" sign (flickers).
+    const sign = rect(7840, 520, 160, 24, 0x001a0d, 1, 1.5);
+    sign.setStrokeStyle(1, 0xff6a00, 0.9);
+    const signText = this.add.text(7920, 532, '▼ SHAFT B7', { fontFamily: 'monospace', fontSize: '10px', color: '#ff6a00' })
+      .setOrigin(0.5).setDepth(1.6);
+    this.shaftSign = signText;
+    // Darkness overlays (shaft interior x7610–8390, width ~780).
+    rect(7610, 1800, 780, 1000, 0x000000, 0.20, 1.45);
+    rect(7610, 2800, 780, 1200, 0x000000, 0.40, 1.45);
+    rect(7610, 4000, 780, 1600, 0x000000, 0.60, 1.45);
+
+    // --- The deep (S4): water + waterline ---
+    rect(0, 5680, 14000, 320, P.WATER, 1, -1);
+    rect(0, 5678, 14000, 2, P.PLATFORM, 0.25, 1.55);
+    // Seeker chamber warning sign (flickers).
+    const warn = rect(4050, 5460, 220, 20, 0x0d0000, 1, 1.5);
+    warn.setStrokeStyle(1, 0xff0000, 1);
+    this.seekerWarning = this.add.text(4160, 5470, '⚠ HOSTILE UNIT DETECTED', { fontFamily: 'monospace', fontSize: '8px', color: '#ff0000' })
+      .setOrigin(0.5).setDepth(1.6);
+
+    // --- Ascent shaft (S5): walls + progressive lightening ---
+    rect(800, 380, 10, 5280, P.PLATFORM, 0.15, 1.4);   // left wall
+    rect(1590, 380, 10, 5280, P.PLATFORM, 0.15, 1.4);  // right wall
+    rect(805, 3600, 785, 1200, P.FOG, 0.03, 1.45);
+    rect(805, 2400, 785, 1200, P.FOG, 0.06, 1.45);
+    rect(805, 1200, 785, 1200, P.FOG, 0.10, 1.45);
+    rect(805, 400, 785, 800, P.FOG, 0.16, 1.45);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route seals. The ascent shaft (x800–1600) shares its x-range with Section 1
+  // (the player must cross it left→right to progress), so it can't be sealed
+  // with full-height side walls without trapping the player at spawn. Instead a
+  // horizontal CAP across the shaft mouth (above the top ascent platforms,
+  // below the portal) blocks the portal-skip while leaving the crossing open,
+  // and a bottom gate keeps the lower shaft a dead end. Both open once the deep
+  // is reached. The plunge shaft top is capped until Section 2 is traversed.
+  // makeSeal() uses a TOP-LEFT origin: a #003322 fill (static body) + a 2px top
+  // edge + an optional centred label.
+  // ---------------------------------------------------------------------------
+  makeSeal(left, top, w, h, label) {
+    const cx = left + w / 2;
+    const cy = top + h / 2;
+    const fill = this.add.rectangle(cx, cy, w, h, 0x003322, 0.85).setDepth(3);
+    this.physics.add.existing(fill, true);
+    const edge = this.add.rectangle(cx, top + 1, w, 2, 0x00cc66, 1).setDepth(3.1);
+    const parts = [fill, edge];
+    if (label) {
+      const t = this.add.text(cx, cy, label, { fontFamily: 'monospace', fontSize: '7px', color: '#00cc66' })
+        .setOrigin(0.5).setDepth(3.2);
+      parts.push(t);
+    }
+    return { fill, parts };
+  }
+
+  buildSeals() {
+    this.sealBodies = [];
+
+    // Ascent shaft: bottom gate (lower dead end) + horizontal mouth cap that
+    // sits above the top ascent platforms and below the portal, blocking the
+    // upward skip from Section 1 without obstructing the crossing.
+    this.ascentSeals = [
+      this.makeSeal(800, 5380, 800, 40, 'LOCKED — COMPLETE ROUTE'),
+      this.makeSeal(800, 400, 800, 24, 'ROUTE LOCKED'),
+    ];
+    this.ascentSeals.forEach((s) => this.sealBodies.push(s.fill));
+
+    // Plunge shaft: solid top seal, removed after Section 2.
+    this.plungeSeal = this.makeSeal(7780, 650, 440, 20, '→ CONTINUE');
+    this.sealBodies.push(this.plungeSeal.fill);
+    this.plungeSealOpen = false;
+  }
+
+  // Disable a seal's body immediately, fade its visuals (400ms), then destroy it.
+  removeSeal(seal) {
+    if (seal.fill.body) seal.fill.body.enable = false;
+    this.tweens.add({
+      targets: seal.parts,
+      alpha: 0,
+      duration: 400,
+      onComplete: () => {
+        const i = this.sealBodies.indexOf(seal.fill);
+        if (i !== -1) this.sealBodies.splice(i, 1);
+        seal.parts.forEach((p) => p.destroy());
+      },
+    });
+  }
+
+  openAscentSeals() {
+    this.ascentSeals.forEach((s) => this.removeSeal(s));
+    spawnPickupShards(this, 1200, 5400, 0x00cc66, 16, 60);
+    this.showPathUnlocked();
+  }
+
+  showPathUnlocked() {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const txt = this.add.text(cx, cy - 60, 'PATH UNLOCKED', {
+      fontFamily: 'monospace', fontSize: '24px', color: '#00cc66', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(206).setAlpha(0);
+    this.tweens.add({ targets: txt, alpha: 1, duration: 250, yoyo: true, hold: 1000, onComplete: () => txt.destroy() });
+    this.flashScreen(0x00cc66, 0.25, 350);
+  }
+
+  // Reveal + activate the exit portal once the route is complete.
+  revealPortal() {
+    if (this.portalRevealed) return;
+    this.portalRevealed = true;
+    this.portal.active = true;                 // resume particle/scan animation
+    this.portal.trigger.body.enable = true;    // overlap can now complete the level
+    this.portalOsc = SFX.portalHum();          // ambient hum starts with the portal
+    this.tweens.add({ targets: this.portalGroup, alpha: { from: 0, to: 1 }, duration: 600 });
+    const pt = this.children.getByName('portalText');
+    if (pt) pt.setVisible(true);
+    // Brief "EXIT REVEALED" readout at screen centre, fading over 1s.
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const txt = this.add.text(cx, cy, 'EXIT REVEALED', {
+      fontFamily: 'monospace', fontSize: '22px', color: '#ff6a00', fontStyle: 'bold',
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(206).setAlpha(1);
+    this.tweens.add({ targets: txt, alpha: 0, duration: 1000, onComplete: () => txt.destroy() });
+  }
+
+  // Mirror images of the Section 4 platforms below the waterline (visual only).
+  buildReflections() {
+    const waterline = 5678;
+    this.platforms.forEach((pl) => {
+      if (pl.y < 5400 || pl.y > 5620) return; // Section 4 platforms only
+      const ry = waterline + (waterline - pl.y);
+      this.add.rectangle(pl.x, ry, pl.width, pl.height, P.PLATFORM, 0.12).setDepth(-0.5);
+    });
+  }
+
+  // Static platform: layered visual + static body + Light2D.
+  addPlatform(cx, topY, w, h) {
+    const { body } = buildPlatformVisual(this, cx, topY, w, h, P, false);
+    body.setPipeline('Light2D');
+    this.physics.add.existing(body, true);
+    this.platforms.push(body);
+  }
+
+  // --- Overlap handlers -----------------------------------------------------
+  onPlayerHit() {
+    this.player.takeHit();
+  }
+
+  onCollect(player, c) {
+    const { x, y } = c;
+    const hidden = !!c.hidden;
+    this.tweens.killTweensOf(c);
+    if (c.extras) c.extras.forEach((e) => { this.tweens.killTweensOf(e); e.destroy(); });
+    c.destroy();
+    if (hidden) {
+      this.secretsFound++;
+      SFX.collectSecret();
+      spawnPickupShards(this, x, y, 0xff6a00, 12, 45);
+      this.player.visuals.flashCount(this.secretsFound, 0xff6a00, 1200);
+    } else {
+      this.collectedCount++;
+      SFX.collect();
+      spawnPickupShards(this, x, y, P.COLLECTIBLE, 8, 30);
+      this.player.visuals.flashCount(this.collectedCount, P.COLLECTIBLE);
+    }
+  }
+
+  onAbility(player, trigger) {
+    const ap = this.abilityPickup;
+    if (!ap) return;
+    if (ap.abilityType === 'attack') this.player.hasAttack = true;
+    if (ap.abilityType === 'doubleJump') this.player.canDoubleJump = true;
+    ap.destroy();
+    this.abilityPickup = null;
+    // AUDIO: ability unlock — FL Studio
+    this.showAbilityPanel('ATTACK UNLOCKED', 'Press Z to attack');
+    this.flashScreen(0xffffff, 0.6, 300);
+  }
+
+  onShield(player, trigger) {
+    if (!this.shieldPickup) return;
+    this.player.hasShield = true;
+    this.shieldPickup.destroy();
+    this.shieldPickup = null;
+    SFX.shieldPickup();
+  }
+
+  showAbilityPanel(name, desc) {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const panel = makeGlassPanel(this, cx, cy, 280, 90).setScrollFactor(0).setDepth(204).setAlpha(0);
+    const title = this.add.text(cx, cy - 16, name, { fontFamily: 'monospace', fontSize: '20px', color: '#ff6a00', fontStyle: 'bold' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(205).setAlpha(0);
+    const body = this.add.text(cx, cy + 14, desc, { fontFamily: 'monospace', fontSize: '12px', color: '#ffffff', align: 'center' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(205).setAlpha(0);
+    const items = [panel, title, body];
+    this.tweens.add({ targets: panel, alpha: 1, duration: 200 });
+    this.tweens.add({ targets: title, alpha: 1, duration: 200 });
+    this.tweens.add({ targets: body, alpha: 0.7, duration: 200 });
+    this.time.delayedCall(200 + ABILITY_PANEL_HOLD_MS, () => {
+      this.tweens.add({ targets: items, alpha: 0, duration: 300, onComplete: () => items.forEach((o) => o.destroy()) });
+    });
+  }
+
+  // --- Camera ---------------------------------------------------------------
+  getSection(x, y) {
+    if (y > 5000) return 'deep';
+    if (x > 7400) return 'plunge';
+    if (x < 1800 && y > 400 && y < 5400) return 'ascent';
+    return 'horizontal';
+  }
+
+  applyCameraLerp(section) {
+    const [lx, ly] = CAM_LERP[section] || CAM_LERP.horizontal;
+    this.cameras.main.setLerp(lx, ly);
+  }
+
+  // One-shot cinematic camera move (used at the plunge entry to reveal the drop).
+  cinematicPull(x, y, zoom, duration, cb) {
+    const cam = this.cameras.main;
+    this.cameraLocked = true;
+    cam.stopFollow();
+    cam.pan(x, y, duration, 'Sine.easeInOut');
+    cam.zoomTo(zoom, duration, 'Sine.easeInOut');
+    this.time.delayedCall(duration + 200, () => {
+      cam.zoomTo(1, 600, 'Sine.easeInOut');
+      cam.startFollow(this.player, true);
+      this.applyCameraLerp(this.getSection(this.player.x, this.player.y));
+      this.cameraLocked = false;
+      if (cb) cb();
+    });
+  }
+
+  // --- Camera-effect helpers ------------------------------------------------
+  shakeScreen(duration, intensity) {
+    this.cameras.main.shake(duration, intensity);
+  }
+
+  chromaticHit(intensity, duration) {
+    const cam = this.cameras.main;
+    if (!cam.getPostPipeline) return;
+    let p = cam.getPostPipeline(ChromaticAberrationPipeline);
+    if (Array.isArray(p)) p = p[0];
+    if (!p) return;
+    p.uIntensity = intensity;
+    p.uOffset = 0.008;
+    this.tweens.add({ targets: p, uIntensity: 0, duration, ease: 'Power2' });
+  }
+
+  hitPause(duration) {
+    this.physics.pause();
+    this.tweens.pauseAll();
+    this.time.delayedCall(duration, () => {
+      this.physics.resume();
+      this.tweens.resumeAll();
+    });
+  }
+
+  flashScreen(color, alpha, duration) {
+    const f = this.add
+      .rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, color, alpha)
+      .setScrollFactor(0).setDepth(206);
+    this.tweens.add({ targets: f, alpha: 0, duration, onComplete: () => f.destroy() });
+  }
+
+  // --- Plunge-shaft dust ----------------------------------------------------
+  spawnDust() {
+    if (this.dust.length >= 30) return;
+    const cam = this.cameras.main;
+    if (cam.scrollY < 600 || cam.scrollY > 5700) return; // only deep in the shaft
+    if (this.getSection(this.player.x, this.player.y) !== 'plunge') return;
+    const x = 7620 + Math.random() * 760;
+    const y = cam.scrollY + Math.random() * 80;
+    const d = this.add.rectangle(x, y, 2, 2, P.PLATFORM, 0.06).setDepth(1.6);
+    this.dust.push(d);
+    this.tweens.add({
+      targets: d, y: y + 500, duration: 25000, ease: 'Linear',
+      onComplete: () => { const i = this.dust.indexOf(d); if (i !== -1) this.dust.splice(i, 1); d.destroy(); },
+    });
+  }
+
+  // --- Level complete -------------------------------------------------------
+  onLevelComplete() {
+    if (this.levelDone) return;
+    this.levelDone = true;
+    // AUDIO: level complete — FL Studio
+    if (this.portalOsc) this.portalOsc.stop();
+    this.player.frozen = true;
+    this.player.body.setVelocity(0, 0);
+    this.player.body.setAllowGravity(false);
+    this.hitPause(120);
+    this.chromaticHit(0.8, 600);
+    this.flashScreen(0xffffff, 0.6, 400);
+    this.portal.activate();
+    this.shakeScreen(400, 0.015);
+
+    this.time.delayedCall(700, () => {
+      const cx = this.scale.width / 2;
+      const cy = this.scale.height / 2;
+      const bg = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0).setScrollFactor(0).setDepth(201);
+      this.tweens.add({ targets: bg, alpha: 0.85, duration: 300 });
+      const panel = makeGlassPanel(this, cx, cy, 340, 90).setScrollFactor(0).setDepth(202);
+      const main = this.add.text(cx, cy - 8, 'LEVEL 2 COMPLETE', { fontFamily: 'monospace', fontSize: '30px', color: '#ff6a00' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(203);
+      const sub = this.add.text(cx, cy + 26, `${this.collectedCount} / ${this.totalCollectibles}  •  ${this.secretsFound} / 3 SECRETS`, {
+        fontFamily: 'monospace', fontSize: '13px', color: '#00aacc',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(203);
+      [[panel, cy], [main, cy - 8], [sub, cy + 26]].forEach(([o, ty]) => {
+        o.y = ty + 20; o.alpha = 0;
+        this.tweens.add({ targets: o, y: ty, alpha: 1, duration: 300, ease: 'Quad.easeOut' });
+      });
+      this.time.delayedCall(2600, () => {
+        this.cameras.main.fadeOut(500, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+          this.scene.stop('UI');
+          this.scene.start('MainMenu');
+          this.scene.stop('Level2');
+        });
+      });
+    });
+  }
+
+  // --- Main loop ------------------------------------------------------------
+  update(time, delta) {
+    // M toggles all SFX.
+    if (Phaser.Input.Keyboard.JustDown(this.mKey)) SFX.toggleMute();
+
+    if (this.levelDone) {
+      this.player.update(time, delta);
+      return;
+    }
+
+    this.background.update();
+    this.player.update(time, delta);
+
+    const px = this.player.x;
+    const py = this.player.y;
+
+    // Plunge top seal opens once Section 2 is mostly traversed.
+    if (!this.plungeSealOpen && this.plungeSeal && px > 7200) {
+      this.plungeSealOpen = true;
+      this.removeSeal(this.plungeSeal);
+    }
+
+    // Reaching the deep unlocks the ascent shaft and reveals the exit portal.
+    if (!this.reachedSection4 && px > 7400 && py > 4800) {
+      this.reachedSection4 = true;
+      console.log('[Level2] reachedSection4 — ascent seals unlocked');
+      this.openAscentSeals();
+      this.revealPortal();
+    }
+
+    // Cinematic pull when entering the plunge shaft (once).
+    if (!this.cinematicDone && px > 7700 && py < 800) {
+      this.cinematicDone = true;
+      this.cinematicPull(8000, 1800, 0.6, 1800, null);
+    }
+
+    // Camera lerp per section (unless a cinematic owns the camera).
+    if (!this.cameraLocked) this.applyCameraLerp(this.getSection(px, py));
+
+    // Enemies (skip AI > 1200px from player).
+    const near = (e) => Phaser.Math.Distance.Between(e.x, e.y, px, py) < 1200;
+    for (const d of this.drones) if (d.active && near(d)) d.update(time, delta);
+    for (const s of this.sentinels) if (s.active && near(s)) s.update(time, delta);
+    for (const s of this.seekers) if (s.active && near(s)) s.update(time, delta);
+
+    // Moving platforms (skip > 1000px from player).
+    for (const mp of this.movers) {
+      if (Phaser.Math.Distance.Between(mp.bodyRect.x, mp.bodyRect.y, px, py) < 1000) mp.update(delta);
+    }
+
+    this.portal.update(time, delta);
+    if (this.abilityPickup) this.abilityPickup.update(time, delta);
+    this.diegeticHUD.update(time, delta);
+
+    // Plunge-shaft dust.
+    this.dustTimer += delta;
+    if (this.dustTimer >= 120) { this.dustTimer = 0; this.spawnDust(); }
+
+    // Lights follow / pulse.
+    this.playerLight.x = px;
+    this.playerLight.y = py;
+    this.portalLight.setIntensity(this.portalRevealed ? Math.sin(this.time.now / 800) * 0.4 + 1.4 : 0);
+
+    // Sign / warning flicker.
+    const t = this.time.now;
+    if (this.shaftSign) this.shaftSign.setAlpha(0.7 + 0.3 * (0.5 + 0.5 * Math.sin(t / 300)));
+    if (this.seekerWarning) this.seekerWarning.setAlpha(0.4 + 0.4 * (0.5 + 0.5 * Math.sin(t / 200)));
+    const portalText = this.children.getByName('portalText');
+    if (portalText) portalText.setAlpha(0.3 + 0.2 * (0.5 + 0.5 * Math.sin(t / 1000)));
+
+    // Fell out of the world.
+    if (!this.player.isDead && this.player.y > H) this.player.die();
+  }
+}

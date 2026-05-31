@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import ParallaxBackground from '../background/ParallaxBackground.js';
+import SFX from '../audio/SFX.js';
 
 // =============================================================================
 // MainMenu
@@ -51,15 +52,32 @@ export default class MainMenu extends Phaser.Scene {
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11).setAlpha(0.5);
 
-    // ---- Start prompt (blinks) ----
-    const prompt = this.add
-      .text(cx, cy + 110, 'PRESS SPACE TO BEGIN', {
-        fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00',
+    // ---- Level select ----
+    this.levels = [
+      { label: 'LEVEL 1   ALIEN CITY', scene: 'Game' },
+      { label: 'LEVEL 2   THE DESCENT', scene: 'Level2' },
+    ];
+    this.selectedIndex = 0;
+    this.levelTexts = this.levels.map((lvl, i) => this.add
+      .text(cx, cy + 96 + i * 30, lvl.label, {
+        fontFamily: 'monospace', fontSize: '16px', color: '#00ff88',
+      })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(11)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerover', () => { this.selectedIndex = i; this.updateSelection(); })
+      .on('pointerdown', () => { this.selectedIndex = i; this.startGame(); }));
+
+    // ---- Controls hint (blinks) ----
+    const hint = this.add
+      .text(cx, cy + 162, '↑ ↓  SELECT       SPACE / ENTER  START', {
+        fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11);
     this.tweens.add({
-      targets: prompt, alpha: { from: 0.3, to: 1 }, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+      targets: hint, alpha: { from: 0.3, to: 1 }, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     });
+
+    this.updateSelection();
 
     // ---- Version (bottom-right) ----
     this.add
@@ -77,19 +95,47 @@ export default class MainMenu extends Phaser.Scene {
     this.tweens.add({ targets: this.fadeRect, alpha: 0, duration: 600 });
 
     this.starting = false;
-    this.input.keyboard.once('keydown-SPACE', () => this.startGame());
+    const kb = this.input.keyboard;
+    kb.on('keydown-UP', () => this.moveSelection(-1));
+    kb.on('keydown-W', () => this.moveSelection(-1));
+    kb.on('keydown-DOWN', () => this.moveSelection(1));
+    kb.on('keydown-S', () => this.moveSelection(1));
+    kb.on('keydown-SPACE', () => this.startGame());
+    kb.on('keydown-ENTER', () => this.startGame());
+  }
+
+  // Move the highlight between levels (wraps around).
+  moveSelection(dir) {
+    if (this.starting) return;
+    this.selectedIndex = (this.selectedIndex + dir + this.levels.length) % this.levels.length;
+    this.updateSelection();
+    // AUDIO: menu move
+  }
+
+  // Highlight the active level, dim the rest.
+  updateSelection() {
+    this.levelTexts.forEach((t, i) => {
+      const sel = i === this.selectedIndex;
+      t.setText(`${sel ? '▶  ' : '    '}${this.levels[i].label}${sel ? '  ◀' : '   '}`);
+      t.setColor(sel ? '#ff6a00' : '#00ff88');
+      t.setAlpha(sel ? 1 : 0.4);
+      t.setScale(sel ? 1.08 : 1);
+    });
   }
 
   startGame() {
     if (this.starting) return;
     this.starting = true;
-    // Fade to black, then start the game.
+    // Initialise audio on this user gesture (satisfies browser autoplay policy).
+    SFX.init();
+    const target = this.levels[this.selectedIndex].scene;
+    // Fade to black, then start the chosen level.
     this.fadeRect.setAlpha(0).setDepth(60);
     this.tweens.add({
       targets: this.fadeRect,
       alpha: 1,
       duration: 400,
-      onComplete: () => this.scene.start('Game'),
+      onComplete: () => this.scene.start(target),
     });
   }
 

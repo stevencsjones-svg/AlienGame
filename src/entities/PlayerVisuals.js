@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { PLAYER, COLORS } from '../constants.js';
+import { PLAYER, COLORS, SHIELD_RING_RADIUS_X, SHIELD_RING_RADIUS_Y } from '../constants.js';
 
 // =============================================================================
 // PlayerVisuals
@@ -17,6 +17,8 @@ const C_BRIGHT = COLORS.PLAYER;      // 0xc8ffd4 pale alien white
 const C_GREEN = COLORS.PLATFORM;     // 0x00ff88 toxic green
 const C_CYAN = COLORS.COLLECTIBLE;   // 0x00e5ff cyan visor
 const C_PURPLE = COLORS.ENEMY;       // 0xbf00ff double-jump burst
+
+const C_SHIELD = 0x00cc66; // shield ring colour
 
 const MAX_GHOSTS = 6;
 
@@ -60,6 +62,40 @@ export default class PlayerVisuals {
       this.legL, this.legR, this.torsoShell, this.torso,
       this.headShell, this.head, this.visor,
     ];
+
+    // ---- Shield ring (shown only while player.hasShield) ----
+    this.shieldTime = 0;
+    this.shieldRing = scene.add
+      .ellipse(player.x, player.y, SHIELD_RING_RADIUS_X * 2, SHIELD_RING_RADIUS_Y * 2)
+      .setStrokeStyle(1.5, C_SHIELD, 0.7)
+      .setDepth(5.6)
+      .setVisible(false);
+    this.shieldRing.isFilled = false;
+    this.shieldDots = [];
+    for (let i = 0; i < 4; i++) {
+      this.shieldDots.push(scene.add.rectangle(player.x, player.y, 3, 3, C_SHIELD, 0.7).setDepth(5.7).setVisible(false));
+    }
+  }
+
+  // Burst the shield ring into fragments when it breaks.
+  breakShield() {
+    this.shieldRing.setVisible(false);
+    this.shieldDots.forEach((d) => d.setVisible(false));
+    const px = this.player.x;
+    const py = this.player.y;
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2;
+      const f = this.scene.add.rectangle(px, py, 3, 3, C_SHIELD, 1).setDepth(5.7);
+      this.scene.tweens.add({
+        targets: f,
+        x: px + Math.cos(ang) * 40,
+        y: py + Math.sin(ang) * 40,
+        alpha: 0,
+        duration: 300,
+        ease: 'Quad.easeOut',
+        onComplete: () => f.destroy(),
+      });
+    }
   }
 
   // Briefly flash a count on the visor (called on pickup). Hidden pickups pass
@@ -154,6 +190,31 @@ export default class PlayerVisuals {
     if (this.countFlashTimer > 0) {
       this.visorText.setVisible(true).setPosition(this.visor.x, this.visor.y);
     }
+
+    // ---- Shield ring (only while shielded) ----
+    const shielded = !!this.player.hasShield;
+    this.shieldRing.setVisible(shielded);
+    this.shieldDots.forEach((d) => d.setVisible(shielded));
+    if (shielded) {
+      this.shieldTime += delta;
+      this.shieldRing.setPosition(p.x, p.y);
+      this.shieldRing.angle = (this.shieldTime / 3000) * 360; // 360deg / 3s
+      const ringOp = 0.675 + 0.175 * Math.sin((this.shieldTime / 1000) * Math.PI * 2); // 0.5..0.85
+      this.shieldRing.setStrokeStyle(1.5, C_SHIELD, ringOp);
+      const a = (this.shieldTime / 3000) * Math.PI * 2;
+      for (let i = 0; i < 4; i++) {
+        const da = a + (i * Math.PI) / 2;
+        this.shieldDots[i].setPosition(
+          p.x + Math.cos(da) * SHIELD_RING_RADIUS_X,
+          p.y + Math.sin(da) * SHIELD_RING_RADIUS_Y,
+        );
+      }
+    }
+
+    // ---- Invincibility blink (after a shield break) ----
+    const invincible = this.player.invincibleUntil > time;
+    const blink = invincible ? (Math.floor(time / 80) % 2 === 0) : true;
+    for (let i = 0; i < this.parts.length; i++) this.parts[i].setVisible(blink);
   }
 
   // ---- Dash ghost trail ------------------------------------------------------
