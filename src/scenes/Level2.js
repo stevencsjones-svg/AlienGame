@@ -107,7 +107,7 @@ const COLLECTIBLES = [
   [1200, 5100], [1200, 4500], [1200, 3900], [1200, 3300], [1200, 2700], [1200, 2100], [1200, 1500], [1200, 900],  // S5 (8)
 ];
 // 3 secret collectibles (orange).
-const SECRETS = [[7460, 360], [7660, 5180], [840, 500]];
+const SECRETS = [[7460, 360], [7660, 5180], [1100, 5100]];
 
 // Camera lerp per section.
 const CAM_LERP = {
@@ -167,6 +167,14 @@ export default class Level2 extends Phaser.Scene {
     // ---- Geometry ----
     GROUND.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
     PLATFORMS.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
+
+    // BUG 5: a thick, invisible backstop under the deep floor. The plunge shaft
+    // is ~4900px tall, so a center free-fall reaches ~57px/frame and would
+    // tunnel straight through the thin (20px) deep floor. This 300px-thick body
+    // (top flush with the deep floor at y5660) guarantees a fast faller lands.
+    this.backstopFloor = this.add.rectangle(W / 2, 5810, W, 300).setVisible(false);
+    this.physics.add.existing(this.backstopFloor, true);
+    this.platforms.push(this.backstopFloor);
     MOVERS.forEach(([sx, ty, range, speed]) => {
       const mp = new MovingPlatform(this, sx, ty, 120, 14, 'x', range, speed, P);
       this.movers.push(mp);
@@ -404,6 +412,7 @@ export default class Level2 extends Phaser.Scene {
 
   // --- Overlap handlers -----------------------------------------------------
   onPlayerHit() {
+    console.log('enemy hit player');
     this.player.takeHit();
   }
 
@@ -620,8 +629,8 @@ export default class Level2 extends Phaser.Scene {
     // Camera lerp per section (unless a cinematic owns the camera).
     if (!this.cameraLocked) this.applyCameraLerp(this.getSection(px, py));
 
-    // Enemies (skip AI > 1200px from player).
-    const near = (e) => Phaser.Math.Distance.Between(e.x, e.y, px, py) < 1200;
+    // Enemies (skip AI > 2400px from player).
+    const near = (e) => Phaser.Math.Distance.Between(e.x, e.y, px, py) < 2400;
     for (const d of this.drones) if (d.active && near(d)) d.update(time, delta);
     for (const s of this.sentinels) if (s.active && near(s)) s.update(time, delta);
     for (const s of this.seekers) if (s.active && near(s)) s.update(time, delta);
@@ -629,6 +638,26 @@ export default class Level2 extends Phaser.Scene {
     // Moving platforms (skip > 1000px from player).
     for (const mp of this.movers) {
       if (Phaser.Math.Distance.Between(mp.bodyRect.x, mp.bodyRect.y, px, py) < 1000) mp.update(delta);
+    }
+
+    // Carry the player when standing on a moving platform (preserve velocity so
+    // they can still walk / jump while riding).
+    if (this.player.body.blocked.down) {
+      for (const mp of this.movers) {
+        const half = mp.bodyRect.width / 2;
+        const onIt = px >= mp.bodyRect.x - half - 4
+          && px <= mp.bodyRect.x + half + 4
+          && Math.abs(this.player.body.bottom - mp.body.top) < 8;
+        if (onIt && (mp.deltaX || mp.deltaY)) {
+          const vx = this.player.body.velocity.x;
+          const vy = this.player.body.velocity.y;
+          this.player.x += mp.deltaX;
+          this.player.y += mp.deltaY;
+          this.player.body.reset(this.player.x, this.player.y);
+          this.player.body.setVelocity(vx, vy);
+          break;
+        }
+      }
     }
 
     this.portal.update(time, delta);

@@ -55,7 +55,6 @@ export const PLAYER = {
   DASH_SPEED: 560,     // horizontal speed during a dash (px/s)
   DASH_DURATION: 200,  // how long a dash lasts (ms)
   DASH_COOLDOWN: 800,  // time before the next dash is available (ms)
-  DASH_DOUBLE_TAP_WINDOW: 200, // ms — double-tap a direction within this to dash
 
   ATTACK_WIDTH: 30,    // attack hitbox size
   ATTACK_HEIGHT: 12,
@@ -161,7 +160,7 @@ export const ABILITY_PANEL_HOLD_MS = 2000;
 export const PLUNGE_SHAFT_X = 2900;
 export const ASCENT_SHAFT_X = 800;
 export const SEEKER_WARNING_TEXT = 'HOSTILE UNIT DETECTED';
-export const DOUBLE_TAP_WINDOW = 200; // ms (matches PLAYER.DASH_DOUBLE_TAP_WINDOW)
+export const DOUBLE_TAP_WINDOW = 200; // ms (generic double-tap window)
 
 // Collectible totals per level (HUD reads scene.totalCollectibles; falls back here).
 export const LEVEL2_COLLECTIBLE_COUNT = 35;

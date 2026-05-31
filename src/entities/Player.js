@@ -52,10 +52,6 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.wasOnGround = false; // ground state last frame (edge detection)
     this.hasJumped = false;   // true after a jump until landing (gates coyote)
 
-    // Double-tap dash (replaces the Shift key).
-    this.lastLeftTap = 0;
-    this.lastRightTap = 0;
-
     // Speed progression multiplier (driven by the scene; see setSpeedMultiplier).
     this.speedMultiplier = 1;
 
@@ -189,25 +185,9 @@ export default class Player extends Phaser.GameObjects.Rectangle {
       this.body.setVelocityY(this.body.velocity.y * PLAYER.JUMP_CUT_MULTIPLIER);
     }
 
-    // ---- Dash (double-tap a direction) ----
-    const now = this.scene.time.now;
-    const leftTap = Phaser.Input.Keyboard.JustDown(k.left) || Phaser.Input.Keyboard.JustDown(k.a);
-    const rightTap = Phaser.Input.Keyboard.JustDown(k.right) || Phaser.Input.Keyboard.JustDown(k.d);
-    if (leftTap) {
-      if (now - this.lastLeftTap < PLAYER.DASH_DOUBLE_TAP_WINDOW) {
-        this.doDash('left');
-        this.lastLeftTap = 0; // reset so it can't immediately re-trigger
-      } else {
-        this.lastLeftTap = now;
-      }
-    }
-    if (rightTap) {
-      if (now - this.lastRightTap < PLAYER.DASH_DOUBLE_TAP_WINDOW) {
-        this.doDash('right');
-        this.lastRightTap = 0;
-      } else {
-        this.lastRightTap = now;
-      }
+    // ---- Dash (Shift) ----
+    if (Phaser.Input.Keyboard.JustDown(k.shift)) {
+      this.doDash();
     }
 
     // ---- Attack (gated by the attack ability) ----
@@ -236,10 +216,9 @@ export default class Player extends Phaser.GameObjects.Rectangle {
   }
 
   // ---- Dash ------------------------------------------------------------------
-  // Dash in an explicit direction (from a double-tap), respecting the cooldown.
-  doDash(dir) {
+  // Dash in the current facing direction (Shift), respecting the cooldown.
+  doDash() {
     if (this.isDashing || this.dashCooldown > 0 || this.frozen || this.isDead) return;
-    this.facing = dir === 'left' ? -1 : 1;
     this.startDash();
   }
 

@@ -30,6 +30,8 @@ export default class MovingPlatform {
     this.originY = body.y;
     this.prevX = body.x;
     this.prevY = body.y;
+    this.deltaX = 0; // movement applied this frame (used to carry the player)
+    this.deltaY = 0;
   }
 
   update(delta) {
@@ -49,6 +51,8 @@ export default class MovingPlatform {
     }
     // Re-sync the static body to the (moved) body rect.
     this.body.updateFromGameObject();
+    this.deltaX = dx;
+    this.deltaY = dy;
     this.prevX = nx;
     this.prevY = ny;
   }
