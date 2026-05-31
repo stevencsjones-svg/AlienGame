@@ -1,0 +1,17 @@
+{
+  "name": "alien-platformer",
+  "version": "0.1.0",
+  "description": "Single-level 2D platformer built with Phaser 3 + Vite. All visuals are procedural geometry.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.80.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
