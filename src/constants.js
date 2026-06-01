@@ -169,3 +169,23 @@ export const LEVEL2_COLLECTIBLE_COUNT = 35;
 export const SFX_MASTER_VOLUME = -6;   // dB on Tone's master destination
 export const SFX_LAND_THROTTLE_MS = 100; // min gap between landing thuds
 export const SFX_ENABLED = true;
+
+// ---- Level 1 palette shift (subtle warm/intense drift toward the spire) -----
+export const LEVEL1_PALETTE_START = {
+  platform: 0x00ff88,
+  platformDim: 0x004422,
+  enemyBase: 0xbf00ff,
+  collectible: 0x00e5ff,
+  accent: 0xff6a00,
+  fog: 0x00ff88,
+};
+
+export const LEVEL1_PALETTE_END = {
+  // Slightly warmer / more intense at Zone 5 — approaching the alien spire.
+  platform: 0x00ffaa,
+  platformDim: 0x005533,
+  enemyBase: 0xdd00ff,
+  collectible: 0x00ffee,
+  accent: 0xff8800,
+  fog: 0x00ffaa,
+};

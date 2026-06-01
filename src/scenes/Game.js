@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {
   WORLD, DEATH_Y, COLORS, PLAYER, PLATFORM_THICKNESS, TOTAL_COLLECTIBLES,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR, SPEED_PROGRESSION_MAX_MULTIPLIER,
+  LEVEL1_PALETTE_START, LEVEL1_PALETTE_END,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -13,6 +14,8 @@ import DiegeticHUD from '../ui/DiegeticHUD.js';
 import DataNoise from '../fx/DataNoise.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
+import CameraController from '../camera/CameraController.js';
+import PaletteManager from '../utils/PaletteManager.js';
 
 // =============================================================================
 // Level data
@@ -226,8 +229,14 @@ export default class Game extends Phaser.Scene {
       pl._nextFlicker = now0 + this.fxRng() * 15000;
     });
 
-    // ---- Camera follow ----
-    this.cameras.main.startFollow(this.player, true, 0.1, 0.1);
+    // ---- Camera follow (via CameraController; Level 1 is always horizontal) ----
+    this.cameraController = new CameraController(this, this.cameras.main, 'horizontal');
+
+    // ---- Palette: start cool, drift warmer near the spire (Improvement 2) ----
+    this.palette = new PaletteManager(this);
+    this.palette.apply(LEVEL1_PALETTE_START);
+    this.paletteShiftTriggered = false;
+    this.fogOverlay = this.background ? this.background.fog : null;
 
     // ---- HUD overlay scene (runs in parallel) ----
     // Idempotent so a scene restart (from the pause menu) doesn't double-launch.
@@ -307,7 +316,8 @@ export default class Game extends Phaser.Scene {
     }
 
     // 2. Top edge — bright 2px neon line sitting on the body's top surface.
-    this.add
+    // Stored on the body so the palette shift can recolour it (Improvement 2).
+    body.topEdge = this.add
       .rectangle(cx, topY + 1, width, 2, COLORS.PLATFORM, 1)
       .setDepth(1);
 
@@ -796,6 +806,18 @@ export default class Game extends Phaser.Scene {
     for (const s of this.sentinels) if (s.active) s.update(time, delta);
     for (const s of this.seekers) if (s.active) s.update(time, delta);
     this.portal.update(time, delta);
+    this.cameraController.update(this.player, delta);
+
+    // Palette shift: drift toward the warmer "spire" palette once past Zone 4.
+    if (!this.paletteShiftTriggered && this.player.x > 3600) {
+      this.paletteShiftTriggered = true;
+      this.palette.transitionTo(LEVEL1_PALETTE_END, 8000, (p) => {
+        this.platforms.forEach((platform) => {
+          if (platform.topEdge) platform.topEdge.setFillStyle(p.platform.color);
+        });
+        if (this.fogOverlay) this.fogOverlay.setFillStyle(p.fog.color, 0.04);
+      });
+    }
 
     // ---- Dynamic lights ----
     // Player light follows the player; brightens to white during a dash.
