@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   WORLD, DEATH_Y, COLORS, PLAYER, PLATFORM_THICKNESS, TOTAL_COLLECTIBLES,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR, SPEED_PROGRESSION_MAX_MULTIPLIER,
-  LEVEL1_PALETTE_START, LEVEL1_PALETTE_END, DEV_MODE,
+  LEVEL1_ZONE_PALETTES, DEV_MODE,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -16,6 +16,7 @@ import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
 import CameraController from '../camera/CameraController.js';
 import PaletteManager from '../utils/PaletteManager.js';
+import LivingBackground from '../background/LivingBackground.js';
 
 // Title card shows once per session (survives respawns and scene restarts).
 let level1TitleShown = false;
@@ -236,10 +237,20 @@ export default class Game extends Phaser.Scene {
     this.cameraController = new CameraController(this, this.cameras.main, 'horizontal');
 
     // ---- Palette: start cool, drift warmer near the spire (Improvement 2) ----
+    // Per-zone atmosphere (background colour temperature). Tracks player x and
+    // drifts the camera backdrop + fog over 3s as the player crosses zones.
     this.palette = new PaletteManager(this);
-    this.palette.apply(LEVEL1_PALETTE_START);
-    this.paletteShiftTriggered = false;
     this.fogOverlay = this.background ? this.background.fog : null;
+    const z1 = LEVEL1_ZONE_PALETTES.zone1;
+    this.currentZone = 'zone1';
+    this._fogOpacity = z1.fogOpacity;
+    this.palette.apply({ bgTint: z1.bgTint, fogColour: z1.fogColour });
+    this.cameras.main.setBackgroundColor(z1.bgTint);
+    if (this.fogOverlay) this.fogOverlay.setFillStyle(z1.fogColour, this._fogOpacity);
+
+    // Living atmosphere: vehicles, vessels, creatures, rain, windows, signs,
+    // lightning — all additive, behind platforms/entities.
+    this.livingBackground = new LivingBackground(this, this.cameras.main);
 
     // ---- HUD overlay scene (runs in parallel) ----
     // Idempotent so a scene restart (from the pause menu) doesn't double-launch.
@@ -858,16 +869,13 @@ export default class Game extends Phaser.Scene {
     for (const s of this.seekers) if (s.active) s.update(time, delta);
     this.portal.update(time, delta);
     this.cameraController.update(this.player, delta);
+    this.livingBackground.update(time, delta);
 
-    // Palette shift: drift toward the warmer "spire" palette once past Zone 4.
-    if (!this.paletteShiftTriggered && this.player.x > 3600) {
-      this.paletteShiftTriggered = true;
-      this.palette.transitionTo(LEVEL1_PALETTE_END, 8000, (p) => {
-        this.platforms.forEach((platform) => {
-          if (platform.topEdge) platform.topEdge.setFillStyle(p.platform.color);
-        });
-        if (this.fogOverlay) this.fogOverlay.setFillStyle(p.fog.color, 0.04);
-      });
+    // Per-zone atmosphere shift (5 stages by player x; 3s drift on change).
+    const zone = this.zoneForX(this.player.x);
+    if (zone !== this.currentZone) {
+      this.currentZone = zone;
+      this.shiftToZone(zone);
     }
 
     // ---- Dynamic lights ----
@@ -926,6 +934,32 @@ export default class Game extends Phaser.Scene {
     } else {
       this.player.setSpeedMultiplier(1.0);
     }
+  }
+
+  // ---- Per-zone atmosphere ----------------------------------------------------
+  zoneForX(x) {
+    if (x < 1200) return 'zone1';
+    if (x < 2400) return 'zone2';
+    if (x < 3600) return 'zone3';
+    if (x < 4800) return 'zone4';
+    return 'zone5';
+  }
+
+  // Drift the backdrop colour + fog to a new zone over 3s. Colours go through
+  // PaletteManager (extended to all 5 zones); fog opacity lerps alongside.
+  shiftToZone(zoneKey) {
+    const z = LEVEL1_ZONE_PALETTES[zoneKey];
+    const startOpacity = this._fogOpacity;
+    this.palette.transitionTo({ bgTint: z.bgTint, fogColour: z.fogColour }, 3000, (p) => {
+      this.cameras.main.setBackgroundColor(p.bgTint.color);
+      if (this.fogOverlay) this.fogOverlay.setFillStyle(p.fogColour.color, this._fogOpacity);
+    });
+    this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 3000,
+      onUpdate: (tw) => { this._fogOpacity = Phaser.Math.Linear(startOpacity, z.fogOpacity, tw.getValue()); },
+    });
   }
 
   // ---- Pause (FIX 6) ----------------------------------------------------------

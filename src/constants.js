@@ -200,3 +200,17 @@ export const LEVEL1_PALETTE_END = {
   accent: 0xff8800,
   fog: 0x00ffaa,
 };
+
+// ---- Level 1 per-zone atmosphere (background colour temperature) ------------
+// Five colour-temperature stages tracked by player x. Applied to the camera
+// backdrop (bgTint) and the fog overlay (fogColour / fogOpacity). buildingTint
+// is provided for reference; it is intentionally NOT used as a multiplicative
+// RenderTexture setTint (these near-black values would erase the parallax) —
+// the per-zone feel comes from the backdrop + fog instead.
+export const LEVEL1_ZONE_PALETTES = {
+  zone1: { bgTint: 0x020508, fogColour: 0x001133, fogOpacity: 0.06, buildingTint: 0x030810 },
+  zone2: { bgTint: 0x030a08, fogColour: 0x002211, fogOpacity: 0.05, buildingTint: 0x041208 },
+  zone3: { bgTint: 0x050a0a, fogColour: 0x001a22, fogOpacity: 0.04, buildingTint: 0x060f10 },
+  zone4: { bgTint: 0x080a05, fogColour: 0x111a00, fogOpacity: 0.04, buildingTint: 0x0a1005 },
+  zone5: { bgTint: 0x0a0a04, fogColour: 0x1a1400, fogOpacity: 0.05, buildingTint: 0x0f0f04 },
+};
