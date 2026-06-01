@@ -200,6 +200,7 @@ export default class Game extends Phaser.Scene {
     this.createLevelGeometry();
     this.createCollectibles();
     this.createSecrets();
+    this.createWorldSigns(); // environmental storytelling (visual only)
 
     // ---- Player ----
     this.player = new Player(this, PLAYER.SPAWN_X, PLAYER.SPAWN_Y);
@@ -266,6 +267,78 @@ export default class Game extends Phaser.Scene {
         0x00ff88,
       );
     }
+
+    // ---- Dev zone indicator (DEV_MODE only) ----
+    if (DEV_MODE) {
+      this.devZoneText = this.add
+        .text(this.scale.width / 2, 12, 'ZONE 1', {
+          fontSize: '11px', fontFamily: 'monospace', color: '#ff6a00',
+          backgroundColor: '#000000', padding: { x: 8, y: 4 },
+        })
+        .setScrollFactor(0).setDepth(999).setAlpha(0.8).setOrigin(0.5, 0);
+      this.devPosText = this.add
+        .text(this.scale.width / 2, 34, 'x:0 y:0', {
+          fontSize: '9px', fontFamily: 'monospace', color: '#00ff88',
+          backgroundColor: '#000000', padding: { x: 6, y: 3 },
+        })
+        .setScrollFactor(0).setDepth(999).setAlpha(0.6).setOrigin(0.5, 0);
+    }
+  }
+
+  // ---- Environmental storytelling: world-space signage (visual only) --------
+  // line2 optional. opts: { colour, opacity, size, scrollFactor, panel }.
+  addWorldSign(x, y, line1, line2, opts = {}) {
+    const cfg = {
+      colour: '#00ff88', opacity: 0.35, size: 8, scrollFactor: 1.0, ...opts,
+    };
+    if (opts.panel) {
+      const w = Math.max(line1.length, (line2 || '').length) * 5 + 12;
+      const h = line2 ? 24 : 14;
+      this.add
+        .rectangle(x - 6, line2 ? y + 9 : y + 4, w, h, 0x000000, 0.4)
+        .setOrigin(0, 0.5).setScrollFactor(cfg.scrollFactor).setDepth(1.9);
+    }
+    // NOTE: Phaser ignores `alpha` in the text style — opacity must be set via
+    // setAlpha(), otherwise every sign renders fully opaque.
+    this.add
+      .text(x, y, line1, { fontSize: `${cfg.size}px`, fontFamily: 'monospace', color: cfg.colour })
+      .setScrollFactor(cfg.scrollFactor).setDepth(2).setAlpha(cfg.opacity);
+    if (line2) {
+      this.add
+        .text(x, y + 10, line2, { fontSize: `${cfg.size - 1}px`, fontFamily: 'monospace', color: cfg.colour })
+        .setScrollFactor(cfg.scrollFactor).setDepth(2).setAlpha(cfg.opacity * 0.7);
+    }
+  }
+
+  createWorldSigns() {
+    // Zone 1 — Tutorial street
+    this.addWorldSign(60, 720, 'TIER 1 — STREET LEVEL', 'AUTHORISED PERSONNEL ONLY', { colour: '#ff6a00', opacity: 0.4, panel: true });
+    this.addWorldSign(180, 680, 'GROUND DRONE PATROL ACTIVE', null, { colour: '#ff0000', opacity: 0.3 });
+    this.addWorldSign(340, 560, 'EXILE ALERT — SECTOR 1', 'REPORT SIGHTINGS TO CITY CONTROL', { colour: '#ff6a00', opacity: 0.25, panel: true });
+    this.addWorldSign(600, 740, '// WANTED //', 'IDENTITY: UNKNOWN — TIER: REVOKED', { colour: '#00ff88', opacity: 0.3 });
+    this.addWorldSign(900, 700, 'MARKET DISTRICT — ZONE A', null, { colour: '#00ff88', opacity: 0.2 });
+
+    // Zone 2 — Market district
+    this.addWorldSign(1300, 720, 'TIER ACCESS: STREET AND BELOW', 'UPPER TIERS REQUIRE CLEARANCE', { colour: '#ff6a00', opacity: 0.3, panel: true });
+    this.addWorldSign(1600, 680, '// THEY WATCH FROM ABOVE //', null, { colour: '#00ff88', opacity: 0.18 });
+    this.addWorldSign(1900, 740, 'NODE-7 SURVEILLANCE ACTIVE', 'ALL MOVEMENT LOGGED', { colour: '#ff0000', opacity: 0.25 });
+    this.addWorldSign(2100, 700, 'UNDERCITY ACCESS — SHAFT B7', '▼ MAINTENANCE ONLY', { colour: '#ff6a00', opacity: 0.35, panel: true });
+
+    // Zone 3 — Vertical climb
+    this.addWorldSign(2500, 720, 'VERTICAL TRANSIT RESTRICTED', 'UPPER TIERS MONITORING THIS SECTOR', { colour: '#ff6a00', opacity: 0.28, panel: true });
+    this.addWorldSign(2700, 500, '// HOW FAR WILL YOU GET //', null, { colour: '#00ff88', opacity: 0.15 });
+    this.addWorldSign(2900, 300, 'TIER 2 — TRANSIT NETWORK', 'CLEARANCE LEVEL: DENIED', { colour: '#ff0000', opacity: 0.3, panel: true });
+
+    // Zone 4 — Rooftop gauntlet
+    this.addWorldSign(3700, 680, 'CORPORATE DISTRICT — RESTRICTED', 'TIERS 4-6 ABOVE THIS POINT', { colour: '#ff6a00', opacity: 0.3, panel: true });
+    this.addWorldSign(4000, 720, 'SENTINEL COVERAGE: FULL', null, { colour: '#ff0000', opacity: 0.28 });
+    this.addWorldSign(4300, 660, '// THEY TOOK EVERYTHING //', '// YOU ARE GOING BACK //', { colour: '#00ff88', opacity: 0.22 });
+
+    // Zone 5 — Alien spire
+    this.addWorldSign(4900, 700, 'INNER SANCTUM — TIER 7+', 'UNAUTHORISED ACCESS: LETHAL RESPONSE', { colour: '#ff0000', opacity: 0.35, panel: true });
+    this.addWorldSign(5400, 660, 'SPIRE ACCESS POINT', 'IDENTITY VERIFICATION REQUIRED', { colour: '#ff6a00', opacity: 0.3, panel: true });
+    this.addWorldSign(5900, 680, '// ONE TIER AT A TIME //', null, { colour: '#00ff88', opacity: 0.18 });
+    this.addWorldSign(6100, 700, 'EXIT — TRANSIT NETWORK', 'TIER 3 — ABOVE', { colour: '#00ff88', opacity: 0.4, panel: true });
   }
 
   // Brief atmospheric title card (glassmorphism). Does not block input; fades
@@ -876,6 +949,22 @@ export default class Game extends Phaser.Scene {
     if (zone !== this.currentZone) {
       this.currentZone = zone;
       this.shiftToZone(zone);
+    }
+
+    // ---- Dev zone indicator (DEV_MODE only) ----
+    if (DEV_MODE && this.devZoneText) {
+      const px = Math.floor(this.player.x);
+      const py = Math.floor(this.player.y);
+      let z = 1;
+      let zoneName = 'ZONE 1 — TUTORIAL STREET';
+      if (px >= 1200 && px < 2400) { z = 2; zoneName = 'ZONE 2 — MARKET DISTRICT'; }
+      else if (px >= 2400 && px < 3600) { z = 3; zoneName = 'ZONE 3 — VERTICAL CLIMB'; }
+      else if (px >= 3600 && px < 4800) { z = 4; zoneName = 'ZONE 4 — ROOFTOP GAUNTLET'; }
+      else if (px >= 4800) { z = 5; zoneName = 'ZONE 5 — ALIEN SPIRE'; }
+      const zoneColours = { 1: '#00ff88', 2: '#00ddff', 3: '#aa88ff', 4: '#ff8800', 5: '#ff4444' };
+      this.devZoneText.setText(zoneName);
+      this.devZoneText.setColor(zoneColours[z]);
+      this.devPosText.setText(`x:${px}  y:${py}  zone:${z}`);
     }
 
     // ---- Dynamic lights ----
