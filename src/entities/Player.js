@@ -194,6 +194,40 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     if (this.hasAttack && Phaser.Input.Keyboard.JustDown(k.z) && !this.attackActive) {
       this.attack();
     }
+
+    // ---- Corner correction ----
+    // While rising, if the head clips the corner of a platform by a few pixels
+    // on one side, nudge the player horizontally clear so the jump continues
+    // instead of dying on the lip. Runs proactively on upward velocity: Arcade
+    // zeroes velocity.y the instant it registers a ceiling block, so checking
+    // body.blocked.up would miss the window. Static platforms only — never
+    // walls/enemies — and never during a dash (dash has no upward velocity).
+    if (this.body.velocity.y < 0 && !this.isDashing) {
+      const above = this.scene.physics.overlapRect(
+        this.body.x, this.body.y - 2, this.body.width, 4, false, true, // dynamic=false, static=true
+      );
+      for (const b of above) {
+        const pL = this.body.x;
+        const pR = this.body.x + this.body.width;
+        const clipLeft = pR - b.x;               // overlap into the obstacle's LEFT edge
+        const clipRight = (b.x + b.width) - pL;  // overlap into the obstacle's RIGHT edge
+        if (clipLeft <= 0 || clipRight <= 0) continue; // not horizontally overlapping
+        const vx = this.body.velocity.x;
+        const vy = this.body.velocity.y;
+        if (clipLeft <= clipRight && clipLeft <= PLAYER.CORNER_CORRECTION) {
+          this.x -= clipLeft + 1;                // nudge LEFT, off the corner
+          this.body.reset(this.x, this.y);
+          this.body.setVelocity(vx, vy);         // reset() zeroes velocity — restore it
+          break;
+        }
+        if (clipRight < clipLeft && clipRight <= PLAYER.CORNER_CORRECTION) {
+          this.x += clipRight + 1;               // nudge RIGHT, off the corner
+          this.body.reset(this.x, this.y);
+          this.body.setVelocity(vx, vy);
+          break;
+        }
+      }
+    }
   }
 
   // ---- Jump execution (shared by normal press and buffered landing) ---------

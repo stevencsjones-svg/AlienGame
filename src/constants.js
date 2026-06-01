@@ -20,6 +20,10 @@ export const VIEW = {
 
 export const GRAVITY = 1200;
 
+// Dev flag: when true, narrative beats that would interrupt iteration (the
+// opening title cards) are skipped silently. Set to false for playtest builds.
+export const DEV_MODE = true;
+
 // Falling below this y-value (i.e. into a pit) kills the player.
 export const DEATH_Y = WORLD.HEIGHT + 50;
 
@@ -51,6 +55,13 @@ export const PLAYER = {
   // Increase if players complain jumps don't register
   // Decrease if jumps feel like they fire unexpectedly
   JUMP_BUFFER: 120, // ms
+
+  // CORNER_CORRECTION: pixels of overlap that will be silently corrected on
+  // upward jumps. 5px is the sweet spot — generous enough to feel fair, small
+  // enough to feel honest. Increase if jumps still feel clipped. Decrease if
+  // the nudge feels too obvious. (Range ~3 tight to ~8 very forgiving;
+  // Celeste uses ~4-5px.)
+  CORNER_CORRECTION: 5, // px
 
   DASH_SPEED: 560,     // horizontal speed during a dash (px/s)
   DASH_DURATION: 200,  // how long a dash lasts (ms)

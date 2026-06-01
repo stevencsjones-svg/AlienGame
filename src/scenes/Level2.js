@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS,
+  LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS, DEV_MODE,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -21,6 +21,9 @@ import SFX from '../audio/SFX.js';
 const P = LEVEL2;
 const W = LEVEL2_WORLD.WIDTH;
 const H = LEVEL2_WORLD.HEIGHT;
+
+// Title card shows once per session (survives respawns and scene restarts).
+let level2TitleShown = false;
 
 // =============================================================================
 // LEVEL DATA — a 14000x6000 U-shaped run:
@@ -246,12 +249,133 @@ export default class Level2 extends Phaser.Scene {
     this.mKey = this.input.keyboard.addKey('M');
     this.events.once('shutdown', () => { if (this.portalOsc) this.portalOsc.stop(); });
 
+    // ---- Pause ----
+    this.isPaused = false;
+    this.pauseSelection = 0; // 0 = RESUME, 1 = RESTART, 2 = MAIN MENU
+    this.pauseKeys = this.input.keyboard.addKeys({
+      esc: 'ESC', up: 'UP', down: 'DOWN', w: 'W', s: 'S', space: 'SPACE', enter: 'ENTER',
+    });
+
     // ---- HUD ----
     this.diegeticHUD = new DiegeticHUD(this, this.player);
     if (!this.scene.isActive('UI')) this.scene.launch('UI');
 
     // ---- Camera ----
     this.cameras.main.startFollow(this.player, true, CAM_LERP.horizontal[0], CAM_LERP.horizontal[1]);
+
+    // ---- Opening title card (once per session; skipped in DEV_MODE) ----
+    if (!DEV_MODE && !level2TitleShown) {
+      level2TitleShown = true;
+      this.showTitleCard(
+        'THE UNDERCITY — TIER 0',
+        'Below the city proper.\nThose who fell further.',
+        "You didn't think it could get worse than the street.",
+        0x00cc66,
+      );
+    }
+  }
+
+  // Brief atmospheric title card (glassmorphism). Does not block input; fades
+  // in 400ms, holds 3.5s, fades out 400ms. `green` accents the panel + line 2.
+  showTitleCard(line1, line2, line3, green) {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const Wd = 480;
+    const Ht = 90;
+    const D = 210;
+    const greenStr = `#${green.toString(16).padStart(6, '0')}`;
+
+    const base = this.add.rectangle(cx, cy, Wd, Ht, 0x050a08, 0.55).setStrokeStyle(0.5, green, 0.25);
+    const tint = this.add.rectangle(cx, cy, Wd, Ht, green, 0.04);
+    const hi = this.add.rectangle(cx, cy - Ht / 2 + 1, Wd, 1, 0xffffff, 0.15);
+    const t1 = this.add.text(cx, cy - 28, line1, { fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00' }).setOrigin(0.5);
+    const div = this.add.rectangle(cx, cy - 14, Wd - 40, 1, green, 0.2);
+    const t2 = this.add.text(cx, cy + 2, line2, { fontFamily: 'monospace', fontSize: '10px', color: greenStr, align: 'center' }).setOrigin(0.5).setAlpha(0.7);
+    const t3 = this.add.text(cx, cy + 30, line3, { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff', fontStyle: 'italic', align: 'center' }).setOrigin(0.5).setAlpha(0.5);
+
+    const card = this.add.container(0, 0, [base, tint, hi, t1, div, t2, t3])
+      .setScrollFactor(0).setDepth(D).setAlpha(0);
+    this.tweens.add({ targets: card, alpha: 1, duration: 400, hold: 3500, yoyo: true, onComplete: () => card.destroy() });
+  }
+
+  // --- Pause menu (RESUME / RESTART / MAIN MENU) ----------------------------
+  togglePause() {
+    if (this.isPaused) this.resumeScene();
+    else this.pauseScene();
+  }
+
+  pauseScene() {
+    this.isPaused = true;
+    this.pauseSelection = 0;
+    this.physics.pause();
+    this.tweens.pauseAll();
+    this.time.paused = true;
+    this.buildPauseOverlay();
+  }
+
+  resumeScene() {
+    this.isPaused = false;
+    this.physics.resume();
+    this.tweens.resumeAll();
+    this.time.paused = false;
+    if (this.pauseUI) this.pauseUI.forEach((o) => o.destroy());
+    this.pauseUI = null;
+  }
+
+  buildPauseOverlay() {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const dim = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0.75).setScrollFactor(0).setDepth(300);
+    const panel = makeGlassPanel(this, cx, cy, 280, 190).setScrollFactor(0).setDepth(301);
+    const title = this.add.text(cx, cy - 54, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00cc66' }).setOrigin(0.5).setScrollFactor(0).setDepth(302);
+    const sep = this.add.rectangle(cx, cy - 28, 200, 1, 0x00cc66, 0.6).setScrollFactor(0).setDepth(302);
+    this.resumeText = this.add.text(cx - 60, cy - 2, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.restartText = this.add.text(cx - 60, cy + 26, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.mainMenuText = this.add.text(cx - 60, cy + 54, 'MAIN MENU', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText, this.mainMenuText];
+    this.refreshPauseSelection();
+  }
+
+  refreshPauseSelection() {
+    if (!this.resumeText) return;
+    this.resumeText.setText(`${this.pauseSelection === 0 ? '> ' : '  '}RESUME`).setAlpha(this.pauseSelection === 0 ? 1 : 0.6);
+    this.restartText.setText(`${this.pauseSelection === 1 ? '> ' : '  '}RESTART`).setAlpha(this.pauseSelection === 1 ? 1 : 0.6);
+    this.mainMenuText.setText(`${this.pauseSelection === 2 ? '> ' : '  '}MAIN MENU`).setAlpha(this.pauseSelection === 2 ? 1 : 0.6);
+  }
+
+  updatePauseMenu() {
+    const k = this.pauseKeys;
+    if (Phaser.Input.Keyboard.JustDown(k.up) || Phaser.Input.Keyboard.JustDown(k.w)) {
+      this.pauseSelection = Math.max(0, this.pauseSelection - 1);
+      this.refreshPauseSelection();
+    }
+    if (Phaser.Input.Keyboard.JustDown(k.down) || Phaser.Input.Keyboard.JustDown(k.s)) {
+      this.pauseSelection = Math.min(2, this.pauseSelection + 1);
+      this.refreshPauseSelection();
+    }
+    if (Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.enter)) {
+      if (this.pauseSelection === 0) {
+        this.resumeScene();
+      } else if (this.pauseSelection === 1) {
+        this.physics.resume();
+        this.tweens.resumeAll();
+        this.time.paused = false;
+        this.isPaused = false;
+        this.scene.restart();
+      } else {
+        this.physics.resume();
+        this.tweens.resumeAll();
+        this.time.paused = false;
+        this.isPaused = false;
+        if (this.portalOsc) this.portalOsc.stop();
+        this.cameras.main.fadeOut(400, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+          this.scene.stop('UI');
+          this.scene.start('MainMenu');
+          this.scene.stop(this.scene.key); // 'Level2'
+        });
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -578,12 +702,32 @@ export default class Level2 extends Phaser.Scene {
         o.y = ty + 20; o.alpha = 0;
         this.tweens.add({ targets: o, y: ty, alpha: 1, duration: 300, ease: 'Quad.easeOut' });
       });
-      this.time.delayedCall(2600, () => {
-        this.cameras.main.fadeOut(500, 0, 0, 0);
-        this.cameras.main.once('camerafadeoutcomplete', () => {
-          this.scene.stop('UI');
-          this.scene.start('MainMenu');
-          this.scene.stop('Level2');
+
+      // Story beat (NAR-006): divider + exile line, fading in after the panel.
+      const beatDiv = this.add.rectangle(cx, cy + 56, 280, 1, 0x00cc66, 0).setScrollFactor(0).setDepth(203);
+      const beat = this.add
+        .text(cx, cy + 78, 'You climbed out of the dark.\nThey put you there. Remember that.', {
+          fontFamily: 'monospace', fontSize: '11px', color: '#00cc66', align: 'center',
+        })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0);
+      this.time.delayedCall(200, () => {
+        this.tweens.add({ targets: beatDiv, alpha: 0.3, duration: 400 });
+        this.tweens.add({ targets: beat, alpha: 0.8, duration: 400 });
+      });
+
+      // Continue prompt (after 1.5s; Space returns to the main menu).
+      this.time.delayedCall(1500, () => {
+        const cont = this.add
+          .text(cx, cy + 116, 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' })
+          .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
+        this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        this.input.keyboard.once('keydown-SPACE', () => {
+          this.cameras.main.fadeOut(500, 0, 0, 0);
+          this.cameras.main.once('camerafadeoutcomplete', () => {
+            this.scene.stop('UI');
+            this.scene.start('MainMenu');
+            this.scene.stop('Level2');
+          });
         });
       });
     });
@@ -593,6 +737,15 @@ export default class Level2 extends Phaser.Scene {
   update(time, delta) {
     // M toggles all SFX.
     if (Phaser.Input.Keyboard.JustDown(this.mKey)) SFX.toggleMute();
+
+    // ESC toggles pause (not after the level is finished).
+    if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
+      this.togglePause();
+    }
+    if (this.isPaused) {
+      this.updatePauseMenu();
+      return; // freeze gameplay while paused
+    }
 
     if (this.levelDone) {
       this.player.update(time, delta);

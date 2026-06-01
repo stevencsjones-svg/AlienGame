@@ -52,6 +52,13 @@ export default class MainMenu extends Phaser.Scene {
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11).setAlpha(0.5);
 
+    // ---- Tagline (a whisper — exile beat) ----
+    this.add
+      .text(cx, cy + 88, 'They took everything. Take it back.', {
+        fontFamily: 'monospace', fontSize: '12px', color: '#ff6a00',
+      })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(11).setAlpha(0.6);
+
     // ---- Level select ----
     this.levels = [
       { label: 'LEVEL 1   ALIEN CITY', scene: 'Game' },
@@ -59,7 +66,7 @@ export default class MainMenu extends Phaser.Scene {
     ];
     this.selectedIndex = 0;
     this.levelTexts = this.levels.map((lvl, i) => this.add
-      .text(cx, cy + 96 + i * 30, lvl.label, {
+      .text(cx, cy + 124 + i * 30, lvl.label, {
         fontFamily: 'monospace', fontSize: '16px', color: '#00ff88',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11)
@@ -69,7 +76,7 @@ export default class MainMenu extends Phaser.Scene {
 
     // ---- Controls hint (blinks) ----
     const hint = this.add
-      .text(cx, cy + 162, '↑ ↓  SELECT       SPACE / ENTER  START', {
+      .text(cx, cy + 190, '↑ ↓  SELECT       SPACE / ENTER  START', {
         fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11);

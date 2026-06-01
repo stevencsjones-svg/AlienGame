@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   WORLD, DEATH_Y, COLORS, PLAYER, PLATFORM_THICKNESS, TOTAL_COLLECTIBLES,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR, SPEED_PROGRESSION_MAX_MULTIPLIER,
-  LEVEL1_PALETTE_START, LEVEL1_PALETTE_END,
+  LEVEL1_PALETTE_START, LEVEL1_PALETTE_END, DEV_MODE,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -16,6 +16,9 @@ import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
 import CameraController from '../camera/CameraController.js';
 import PaletteManager from '../utils/PaletteManager.js';
+
+// Title card shows once per session (survives respawns and scene restarts).
+let level1TitleShown = false;
 
 // =============================================================================
 // Level data
@@ -148,7 +151,7 @@ export default class Game extends Phaser.Scene {
 
     // Pause state.
     this.isPaused = false;
-    this.pauseSelection = 0; // 0 = RESUME, 1 = RESTART
+    this.pauseSelection = 0; // 0 = RESUME, 1 = RESTART, 2 = MAIN MENU
 
     // Dedicated seeded RNG for aesthetic timing (kept separate from the
     // parallax/label RNG so it doesn't shift their determinism).
@@ -241,6 +244,40 @@ export default class Game extends Phaser.Scene {
     // ---- HUD overlay scene (runs in parallel) ----
     // Idempotent so a scene restart (from the pause menu) doesn't double-launch.
     if (!this.scene.isActive('UI')) this.scene.launch('UI');
+
+    // ---- Opening title card (once per session; skipped in DEV_MODE) ----
+    if (!DEV_MODE && !level1TitleShown) {
+      level1TitleShown = true;
+      this.showTitleCard(
+        'STREET LEVEL — TIER 1',
+        'The lowest tier. Market workers.\nGround drones keeping order.',
+        'You used to look down at this place.',
+        0x00ff88,
+      );
+    }
+  }
+
+  // Brief atmospheric title card (glassmorphism). Does not block input; fades
+  // in 400ms, holds 3.5s, fades out 400ms. `green` accents the panel + line 2.
+  showTitleCard(line1, line2, line3, green) {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const W = 480;
+    const H = 90;
+    const D = 210;
+    const greenStr = `#${green.toString(16).padStart(6, '0')}`;
+
+    const base = this.add.rectangle(cx, cy, W, H, 0x050a08, 0.55).setStrokeStyle(0.5, green, 0.25);
+    const tint = this.add.rectangle(cx, cy, W, H, green, 0.04);
+    const hi = this.add.rectangle(cx, cy - H / 2 + 1, W, 1, 0xffffff, 0.15);
+    const t1 = this.add.text(cx, cy - 28, line1, { fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00' }).setOrigin(0.5);
+    const div = this.add.rectangle(cx, cy - 14, W - 40, 1, green, 0.2);
+    const t2 = this.add.text(cx, cy + 2, line2, { fontFamily: 'monospace', fontSize: '10px', color: greenStr, align: 'center' }).setOrigin(0.5).setAlpha(0.7);
+    const t3 = this.add.text(cx, cy + 30, line3, { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff', fontStyle: 'italic', align: 'center' }).setOrigin(0.5).setAlpha(0.5);
+
+    const card = this.add.container(0, 0, [base, tint, hi, t1, div, t2, t3])
+      .setScrollFactor(0).setDepth(D).setAlpha(0);
+    this.tweens.add({ targets: card, alpha: 1, duration: 400, hold: 3500, yoyo: true, onComplete: () => card.destroy() });
   }
 
   // ---- Death pit visual (Zone 3) ----------------------------------------------
@@ -390,38 +427,30 @@ export default class Game extends Phaser.Scene {
 
   // ---- Hidden secrets: 3 collectibles + a false wall + a dash-only ledge ----
   createSecrets() {
-    // Secret 1 — Zone 2: high above the screen, reached by a double jump near
-    // the camera's upper scroll limit.
-    this.addCollectible(1800, 20, true);
-    // Hint: a trail of 3 tiny orange particles drifting down into view on a
-    // loop (staggered 1s apart so it reads as a continuous trickle).
-    for (let i = 0; i < 3; i++) {
-      const hint = this.add.rectangle(1800, 80, 4, 4, HIDDEN_COLLECTIBLE_COLOR, 0.25).setDepth(2);
-      this.tweens.add({
-        targets: hint,
-        y: 140,
-        duration: 3000,
-        delay: i * 1000,
-        repeat: -1,
-        ease: 'Linear',
-      });
-    }
+    // Secret 1 — Zone 2: above the top of the market-district climb. A
+    // deliberate double jump straight up from the highest platform [2150,480]
+    // (~190px, beyond a single 150px jump) reaches it; the normal route drops
+    // down-right into Zone 3, so it stays off the beaten path. (Was at y20 —
+    // ~460px above any platform, physically unreachable. Now it sits in view
+    // above the platform, so the old off-screen particle hint is unnecessary.)
+    this.addCollectible(2150, 290, true);
 
-    // Secret 2 — Zone 3: behind a false wall (platform-coloured, NO physics
-    // body). Lowered to 45% opacity with a faint orange tint so it feels
-    // subtly "wrong" to an observant player. The collectible sits behind it.
-    this.add
-      .rectangle(3100, 200, 16, 80, COLORS.PLATFORM, 0.45)
-      .setDepth(1); // visual only — no physics, player can walk/dash through
-    this.add
-      .rectangle(3100, 200, 16, 80, HIDDEN_COLLECTIBLE_COLOR, 0.12)
-      .setDepth(1); // faint orange "wrongness" tint
+    // Secret 2 — Zone 3: an orange diamond floating in the airspace above the
+    // staircase. Reachable with a deliberate double jump straight up from
+    // platform [3120,400], or an up-left jump from [3280,310] — the normal
+    // left-to-right traversal flies right past it. (A no-physics "false wall"
+    // used to sit beside it, but in the open staircase it concealed nothing
+    // and just read as an arbitrary floating block, so it was removed.)
     this.addCollectible(3140, 200, true);
 
-    // Secret 3 — Zone 4: a small ledge only reachable by a mid-air dash from
-    // the nearby platform; the collectible sits on it (pure skill reward).
-    this.addPlatform(4400, 280, 64);
-    this.addCollectible(4400, 250, true);
+    // Secret 3 — Zone 4: an orange diamond high in the rooftop airspace above
+    // platform [4200,300], clear of the surrounding gauntlet platforms. Needs a
+    // deliberate double jump (~170px) to reach; the normal hop-across route
+    // stays well below it. (It previously sat on a tiny ledge wedged directly
+    // under platform [4450,240] — only a 12px gap, far less than the player's
+    // height — so the collectible was embedded in that platform and impossible
+    // to reach.)
+    this.addCollectible(4200, 130, true);
   }
 
   // ---- Enemies ----------------------------------------------------------------
@@ -712,14 +741,9 @@ export default class Game extends Phaser.Scene {
     // 4. Screen shake.
     this.shakeScreen(400, 0.015);
 
-    // 5. After a short beat, fade to black and hand off to Level 2.
-    this.time.delayedCall(600, () => {
-      this.cameras.main.fadeOut(500, 0, 0, 0);
-      this.cameras.main.once('camerafadeoutcomplete', () => {
-        this.scene.start('Level2');
-        this.scene.stop('Game');
-      });
-    });
+    // 5. After a short beat, show the completion overlay (count + story beat +
+    //    a "press space" prompt that hands off to Level 2).
+    this.time.delayedCall(600, () => this.showLevelCompleteOverlay());
   }
 
   showLevelCompleteOverlay() {
@@ -784,6 +808,33 @@ export default class Game extends Phaser.Scene {
         targets: perfectWord, scale: 1.4, duration: 150, yoyo: true, ease: 'Quad.easeOut', delay: 450,
       });
     }
+
+    // Story beat (NAR-006): divider + exile line, fading in after the panel.
+    const beatDiv = this.add.rectangle(cx, cy + 132, 280, 1, 0xff6a00, 0).setScrollFactor(0).setDepth(203);
+    const beat = this.add
+      .text(cx, cy + 152, "One tier closer. The city above\ndoesn't know you're coming.", {
+        fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00', align: 'center',
+      })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0);
+    this.time.delayedCall(200, () => {
+      this.tweens.add({ targets: beatDiv, alpha: 0.3, duration: 400 });
+      this.tweens.add({ targets: beat, alpha: 0.8, duration: 400 });
+    });
+
+    // Continue prompt (appears after 1.5s; Space hands off to Level 2).
+    this.time.delayedCall(1500, () => {
+      const cont = this.add
+        .text(cx, cy + 190, 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
+      this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.input.keyboard.once('keydown-SPACE', () => {
+        this.cameras.main.fadeOut(500, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+          this.scene.start('Level2');
+          this.scene.stop('Game');
+        });
+      });
+    });
   }
 
   // ---- Main loop --------------------------------------------------------------
@@ -906,18 +957,21 @@ export default class Game extends Phaser.Scene {
     const dim = this.add
       .rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0.75)
       .setScrollFactor(0).setDepth(300);
-    const panel = makeGlassPanel(this, cx, cy, 280, 160).setScrollFactor(0).setDepth(301);
+    const panel = makeGlassPanel(this, cx, cy, 280, 190).setScrollFactor(0).setDepth(301);
     const title = this.add
-      .text(cx, cy - 44, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00ff88' })
+      .text(cx, cy - 54, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00ff88' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(302);
-    const sep = this.add.rectangle(cx, cy - 18, 200, 1, 0x00ff88, 0.6).setScrollFactor(0).setDepth(302);
+    const sep = this.add.rectangle(cx, cy - 28, 200, 1, 0x00ff88, 0.6).setScrollFactor(0).setDepth(302);
     this.resumeText = this.add
-      .text(cx - 60, cy + 8, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .text(cx - 60, cy - 2, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
     this.restartText = this.add
-      .text(cx - 60, cy + 36, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .text(cx - 60, cy + 26, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
-    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText];
+    this.mainMenuText = this.add
+      .text(cx - 60, cy + 54, 'MAIN MENU', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText, this.mainMenuText];
     this.refreshPauseSelection();
   }
 
@@ -930,28 +984,41 @@ export default class Game extends Phaser.Scene {
     if (!this.resumeText) return;
     this.resumeText.setText(`${this.pauseSelection === 0 ? '> ' : '  '}RESUME`).setAlpha(this.pauseSelection === 0 ? 1 : 0.6);
     this.restartText.setText(`${this.pauseSelection === 1 ? '> ' : '  '}RESTART`).setAlpha(this.pauseSelection === 1 ? 1 : 0.6);
+    this.mainMenuText.setText(`${this.pauseSelection === 2 ? '> ' : '  '}MAIN MENU`).setAlpha(this.pauseSelection === 2 ? 1 : 0.6);
   }
 
   updatePauseMenu() {
     const k = this.pauseKeys;
     if (Phaser.Input.Keyboard.JustDown(k.up) || Phaser.Input.Keyboard.JustDown(k.w)) {
-      this.pauseSelection = 0;
+      this.pauseSelection = Math.max(0, this.pauseSelection - 1);
       this.refreshPauseSelection();
     }
     if (Phaser.Input.Keyboard.JustDown(k.down) || Phaser.Input.Keyboard.JustDown(k.s)) {
-      this.pauseSelection = 1;
+      this.pauseSelection = Math.min(2, this.pauseSelection + 1);
       this.refreshPauseSelection();
     }
     if (Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.enter)) {
       if (this.pauseSelection === 0) {
         this.resumeGame();
-      } else {
+      } else if (this.pauseSelection === 1) {
         // RESTART: fully reset the scene from scratch.
         this.physics.resume();
         this.tweens.resumeAll();
         this.time.paused = false;
         this.isPaused = false;
         this.scene.restart();
+      } else {
+        // MAIN MENU: resume scene state, fade out, hand back to the menu.
+        this.physics.resume();
+        this.tweens.resumeAll();
+        this.time.paused = false;
+        this.isPaused = false;
+        this.cameras.main.fadeOut(400, 0, 0, 0);
+        this.cameras.main.once('camerafadeoutcomplete', () => {
+          this.scene.stop('UI');
+          this.scene.start('MainMenu');
+          this.scene.stop(this.scene.key); // 'Game' or 'Level2'
+        });
       }
     }
   }
