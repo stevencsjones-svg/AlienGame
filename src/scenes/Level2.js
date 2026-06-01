@@ -412,7 +412,6 @@ export default class Level2 extends Phaser.Scene {
 
   // --- Overlap handlers -----------------------------------------------------
   onPlayerHit() {
-    console.log('enemy hit player');
     this.player.takeHit();
   }
 
