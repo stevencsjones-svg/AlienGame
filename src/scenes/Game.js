@@ -186,7 +186,7 @@ export default class Game extends Phaser.Scene {
       // Keep the post-FX resolution in sync when the window resizes. (Both
       // pipelines also read renderer.width/height each frame in onPreRender,
       // so this is a belt-and-suspenders update.)
-      this.scale.on('resize', (gameSize) => {
+      const onResize = (gameSize) => {
         const res = [gameSize.width, gameSize.height];
         let crt = this.cameras.main.getPostPipeline('CRTPipeline');
         if (Array.isArray(crt)) crt = crt[0];
@@ -194,7 +194,12 @@ export default class Game extends Phaser.Scene {
         let bloom = this.cameras.main.getPostPipeline('BloomPipeline');
         if (Array.isArray(bloom)) bloom = bloom[0];
         if (bloom) bloom.uResolution = res;
-      });
+      };
+      this.scale.on('resize', onResize);
+      // The ScaleManager is global and outlives this scene — remove the listener
+      // on shutdown so it can't fire against a torn-down camera (or stack up
+      // across restarts).
+      this.events.once('shutdown', () => this.scale.off('resize', onResize));
     }
 
     // ---- Dynamic Light2D lighting ----
@@ -1066,8 +1071,11 @@ export default class Game extends Phaser.Scene {
     }
 
     // ---- Zone transition markers (district labels fade in/out on entry) ----
-    ZONE_MARKERS.forEach((marker) => {
-      if (!this.triggeredMarkers.has(marker.x) && this.player.x >= marker.x) {
+    // Stop scanning once every marker has fired (avoids a per-frame closure +
+    // full-array scan for the rest of the level).
+    if (this.triggeredMarkers.size < ZONE_MARKERS.length) {
+      ZONE_MARKERS.forEach((marker) => {
+        if (this.triggeredMarkers.has(marker.x) || this.player.x < marker.x) return;
         this.triggeredMarkers.add(marker.x);
 
         const t = this.add.text(this.scale.width / 2, 120, marker.label, {
@@ -1096,8 +1104,8 @@ export default class Game extends Phaser.Scene {
             });
           },
         });
-      }
-    });
+      });
+    }
 
     // ---- Dev zone indicator (DEV_MODE only) ----
     if (DEV_MODE && this.devZoneText) {
@@ -1140,20 +1148,20 @@ export default class Game extends Phaser.Scene {
       this.player.die();
     }
 
-    // Auto-reduce bloom strength if the framerate drops.
-    if (this.game.loop.actualFps < 50) {
+    // FPS safeguards: degrade FX once when the framerate drops (one-shot flags
+    // so we don't re-run the pipeline lookups every frame after the first dip).
+    if (!this._fxDegraded && this.game.loop.actualFps < 50) {
+      this._fxDegraded = true;
+      // Reduce bloom strength.
       let p = this.cameras.main.getPostPipeline('BloomPipeline');
       if (Array.isArray(p)) p = p[0];
       if (p) p.uStrength = 1.0;
-    }
-
-    // Auto-brighten ambient if the framerate drops.
-    if (this.game.loop.actualFps < 50) {
+      // Brighten ambient.
       this.lights.setAmbientColor(0x222222);
     }
-
     // CRT safeguard: drop scanlines (keep vignette) if the framerate is poor.
-    if (this.game.loop.actualFps < 45) {
+    if (!this._scanlinesDropped && this.game.loop.actualFps < 45) {
+      this._scanlinesDropped = true;
       let crt = this.cameras.main.getPostPipeline('CRTPipeline');
       if (Array.isArray(crt)) crt = crt[0];
       if (crt) crt.uScanlineOpacity = 0;

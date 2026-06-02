@@ -55,6 +55,7 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
 
   update(time, delta) {
     const p = this.player;
+    if (!p) return; // guard: no player to chase (matches GroundDrone/HoverSentinel)
     const dist = Phaser.Math.Distance.Between(this.x, this.y, p.x, p.y);
 
     // ---- Chase logic (UNCHANGED behaviour) ----
@@ -163,11 +164,14 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
     this.setDepth(6);
     const dx = this.x;
     const dy = this.y;
-    this.scene.time.delayedCall(80, () => {
+    // Capture the scene: the 80ms timer can outlive a scene shutdown, which
+    // nulls this.scene — the death FX are scene-owned, so use the captured ref.
+    const scene = this.scene;
+    scene.time.delayedCall(80, () => {
       for (let i = 0; i < 6; i++) {
         const angle = (i / 6) * Math.PI * 2;
-        const particle = this.scene.add.rectangle(dx, dy, 4, 4, 0xbf00ff).setDepth(6);
-        this.scene.tweens.add({
+        const particle = scene.add.rectangle(dx, dy, 4, 4, 0xbf00ff).setDepth(6);
+        scene.tweens.add({
           targets: particle,
           x: dx + Math.cos(angle) * 40,
           y: dy + Math.sin(angle) * 40,
@@ -176,7 +180,7 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
           onComplete: () => particle.destroy(),
         });
       }
-      this.scene.cameras.main.shake(60, 0.004);
+      scene.cameras.main.shake(60, 0.004);
       // AUDIO: enemy death placeholder
       if (this.gfx) this.gfx.destroy();
       this.destroy();

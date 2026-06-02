@@ -771,7 +771,6 @@ export default class Level2 extends Phaser.Scene {
     // Reaching the deep unlocks the ascent shaft and reveals the exit portal.
     if (!this.reachedSection4 && px > 7400 && py > 4800) {
       this.reachedSection4 = true;
-      console.log('[Level2] reachedSection4 — ascent seals unlocked');
       this.openAscentSeals();
       this.revealPortal();
     }
