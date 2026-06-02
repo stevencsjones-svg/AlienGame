@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   WORLD, DEATH_Y, COLORS, PLAYER, PLATFORM_THICKNESS, TOTAL_COLLECTIBLES,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR, SPEED_PROGRESSION_MAX_MULTIPLIER,
-  LEVEL1_ZONE_PALETTES, DEV_MODE,
+  LEVEL1_ZONE_PALETTES, DEV_MODE, MUSIC_VOLUME,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -17,6 +17,11 @@ import SFX from '../audio/SFX.js';
 import CameraController from '../camera/CameraController.js';
 import PaletteManager from '../utils/PaletteManager.js';
 import LivingBackground from '../background/LivingBackground.js';
+import AbilityPickup from '../entities/AbilityPickup.js';
+// Imported (not a string path) so Vite bundles the asset and the URL resolves
+// in both the dev server and production builds — a literal 'src/audio/...'
+// path 404s in the built dist/.
+import level1MusicUrl from '../audio/level1_music.ogg';
 
 // Title card shows once per session (survives respawns and scene restarts).
 let level1TitleShown = false;
@@ -126,6 +131,13 @@ export default class Game extends Phaser.Scene {
     super('Game');
   }
 
+  preload() {
+    // Background music (idempotent — the cache key is reused across restarts).
+    if (!this.cache.audio.exists('level1_music')) {
+      this.load.audio('level1_music', level1MusicUrl);
+    }
+  }
+
   create() {
     // ---- World & camera bounds ----
     this.physics.world.setBounds(0, 0, WORLD.WIDTH, WORLD.HEIGHT);
@@ -208,7 +220,15 @@ export default class Game extends Phaser.Scene {
     this.createEnemies();
     this.createPortal();
     this.createCheckpoint();
+    this.createAbilityPickups();
     this.createColliders();
+
+    // DEV_MODE: start with everything unlocked so iteration isn't gated.
+    if (DEV_MODE) {
+      this.player.canDoubleJump = true;
+      this.player.canDash = true;
+      this.player.hasAttack = true;
+    }
 
     // Pause / menu keys.
     this.pauseKeys = this.input.keyboard.addKeys({
@@ -256,6 +276,15 @@ export default class Game extends Phaser.Scene {
     // ---- HUD overlay scene (runs in parallel) ----
     // Idempotent so a scene restart (from the pause menu) doesn't double-launch.
     if (!this.scene.isActive('UI')) this.scene.launch('UI');
+
+    // ---- Background music (loops; muted in lockstep with SFX via the M key) ----
+    this.bgMusic = this.sound.add('level1_music', { loop: true, volume: MUSIC_VOLUME });
+    this.bgMusic.setMute(!SFX.enabled); // honour the existing audio toggle
+    this.bgMusic.play();
+    // Safety net: stop the music on any scene shutdown so it can't bleed across.
+    this.events.once('shutdown', () => {
+      if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
+    });
 
     // ---- Opening title card (once per session; skipped in DEV_MODE) ----
     if (!DEV_MODE && !level1TitleShown) {
@@ -558,6 +587,51 @@ export default class Game extends Phaser.Scene {
     this.events.once('shutdown', () => { if (this.portalOsc) this.portalOsc.stop(); });
   }
 
+  // ---- Ability pickups: progressive unlocks through the level ----------------
+  createAbilityPickups() {
+    // NOTE: double-jump moved from the spec's (1280,500) — that sits 200px above
+    // the nearest platform, unreachable with the single jump the player has at
+    // this point (you'd need double-jump to reach the double-jump pickup). It
+    // now floats just above the first Zone-2 platform [1350,700], reachable with
+    // a single jump from the ground. Dash (2480,750) sits on platform [2480,760].
+    this.abilityPickups = [
+      new AbilityPickup(this, 1350, 670, 'doubleJump', 'DOUBLE JUMP', 'Press jump again in mid-air'),
+      new AbilityPickup(this, 2480, 750, 'dash', 'DASH', 'Hold Shift to dash forward'),
+    ];
+  }
+
+  onAbility(player, trigger) {
+    const ap = this.abilityPickups.find((a) => a.trigger === trigger);
+    if (!ap) return;
+    const newly = (ap.abilityType === 'doubleJump' && !this.player.canDoubleJump)
+      || (ap.abilityType === 'dash' && !this.player.canDash)
+      || (ap.abilityType === 'attack' && !this.player.hasAttack);
+    if (ap.abilityType === 'doubleJump') this.player.canDoubleJump = true;
+    if (ap.abilityType === 'dash') this.player.canDash = true;
+    if (ap.abilityType === 'attack') this.player.hasAttack = true;
+    ap.destroy();
+    this.abilityPickups = this.abilityPickups.filter((a) => a !== ap);
+    // AUDIO: ability unlock — FL Studio
+    if (newly) this.showAbilityPanel(ap.label, ap.description); // skip the panel if already unlocked (DEV_MODE)
+  }
+
+  showAbilityPanel(name, desc) {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const panel = makeGlassPanel(this, cx, cy, 280, 90).setScrollFactor(0).setDepth(204).setAlpha(0);
+    const title = this.add.text(cx, cy - 16, name, { fontFamily: 'monospace', fontSize: '20px', color: '#ff6a00', fontStyle: 'bold' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(205).setAlpha(0);
+    const body = this.add.text(cx, cy + 14, desc, { fontFamily: 'monospace', fontSize: '12px', color: '#ffffff', align: 'center' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(205).setAlpha(0);
+    const items = [panel, title, body];
+    this.tweens.add({ targets: panel, alpha: 1, duration: 200 });
+    this.tweens.add({ targets: title, alpha: 1, duration: 200 });
+    this.tweens.add({ targets: body, alpha: 0.7, duration: 200 });
+    this.time.delayedCall(2200, () => {
+      this.tweens.add({ targets: items, alpha: 0, duration: 300, onComplete: () => items.forEach((o) => o.destroy()) });
+    });
+  }
+
   // ---- Colliders & overlaps ---------------------------------------------------
   createColliders() {
     // Solid collisions.
@@ -574,6 +648,11 @@ export default class Game extends Phaser.Scene {
 
     // Exit portal (overlap the inner-core trigger).
     this.physics.add.overlap(this.player, this.portal.trigger, this.onLevelComplete, null, this);
+
+    // Ability pickups (each grants an ability on touch).
+    this.abilityPickups.forEach((ap) => {
+      this.physics.add.overlap(this.player, ap.trigger, this.onAbility, null, this);
+    });
 
     // Attack: the player's hitbox kills any enemy it overlaps (during the
     // attack window, when the hitbox body is enabled).
@@ -912,6 +991,7 @@ export default class Game extends Phaser.Scene {
         .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
       this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       this.input.keyboard.once('keydown-SPACE', () => {
+        if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
         this.cameras.main.fadeOut(500, 0, 0, 0);
         this.cameras.main.once('camerafadeoutcomplete', () => {
           this.scene.start('Level2');
@@ -923,8 +1003,11 @@ export default class Game extends Phaser.Scene {
 
   // ---- Main loop --------------------------------------------------------------
   update(time, delta) {
-    // M toggles all SFX.
-    if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.m)) SFX.toggleMute();
+    // M toggles all audio (SFX + music) via the single SFX.enabled source.
+    if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.m)) {
+      SFX.toggleMute();
+      if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
+    }
 
     // ESC toggles pause (not after the level is finished).
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
@@ -941,6 +1024,7 @@ export default class Game extends Phaser.Scene {
     for (const s of this.sentinels) if (s.active) s.update(time, delta);
     for (const s of this.seekers) if (s.active) s.update(time, delta);
     this.portal.update(time, delta);
+    for (const ap of this.abilityPickups) ap.update(time, delta);
     this.cameraController.update(this.player, delta);
     this.livingBackground.update(time, delta);
 
@@ -1136,6 +1220,7 @@ export default class Game extends Phaser.Scene {
         this.tweens.resumeAll();
         this.time.paused = false;
         this.isPaused = false;
+        if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
         this.cameras.main.fadeOut(400, 0, 0, 0);
         this.cameras.main.once('camerafadeoutcomplete', () => {
           this.scene.stop('UI');

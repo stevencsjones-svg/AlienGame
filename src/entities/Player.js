@@ -51,13 +51,18 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.jumpBuffer = 0;      // remaining window of a remembered early jump press
     this.wasOnGround = false; // ground state last frame (edge detection)
     this.hasJumped = false;   // true after a jump until landing (gates coyote)
+    this.fallStartY = null;   // y when last leaving the ground (hard-landing detection)
 
     // Speed progression multiplier (driven by the scene; see setSpeedMultiplier).
     this.speedMultiplier = 1;
 
-    // Abilities. hasAttack defaults true so Level 1 is unchanged; Level 2 turns
-    // it off at start and grants it via the attack ability pickup.
-    this.hasAttack = true;
+    // Abilities — all default OFF; scenes grant them (Level 1 via pickups,
+    // Level 2 starts with double-jump + dash and grants attack). DEV_MODE
+    // unlocks everything at level start.
+    this.canDoubleJump = false;
+    this.canDash = false;
+    this.hasAttack = false;
+    this.dashHintShown = false; // one-time "find the dash upgrade" hint
     this.hasShield = false;
     this.invincibleUntil = 0; // ms timestamp; no enemy damage before this
 
@@ -127,6 +132,16 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     }
     if (justLanded) SFX.jump_land(); // soft thud (self-throttled to 100ms)
 
+    // ---- Hard-landing feedback (significant fall) ----
+    if (justLeftGround) this.fallStartY = this.y;
+    if (justLanded) {
+      if (this.fallStartY !== null && this.y - this.fallStartY > 200) {
+        this.scene.cameras.main.shake(80, 0.003);
+        this.spawnLandDust();
+      }
+      this.fallStartY = null;
+    }
+
     // Coyote time: open the window when we walk off a ledge without jumping.
     if (justLeftGround && !this.hasJumped) {
       this.coyoteTime = PLAYER.COYOTE_TIME;
@@ -157,10 +172,10 @@ export default class Player extends Phaser.GameObjects.Rectangle {
         // First jump — from the ground or within the coyote window.
         this.doJump();
         if (!onFloor) this.coyoteTime = 0; // coyote can only be used once per fall
-      } else if (this.jumpsUsed < 2) {
-        // Air jump (the double). If we fell off past the coyote window without
-        // taking the grounded jump, forfeit that slot so only the double remains
-        // (double-jump availability itself is unchanged).
+      } else if (this.canDoubleJump && this.jumpsUsed < 2) {
+        // Air jump (the double) — only once unlocked. If we fell off past the
+        // coyote window without taking the grounded jump, forfeit that slot so
+        // only the double remains.
         if (this.jumpsUsed === 0) this.jumpsUsed = 1;
         this.doJump();
       }
@@ -187,7 +202,12 @@ export default class Player extends Phaser.GameObjects.Rectangle {
 
     // ---- Dash (Shift) ----
     if (Phaser.Input.Keyboard.JustDown(k.shift)) {
-      this.doDash();
+      if (!this.canDash && !this.dashHintShown && this.x > 1200) {
+        // Pressed dash before finding the upgrade (Zone 2+): one subtle hint.
+        this.dashHintShown = true;
+        this.showAbilityHint('DASH — FIND THE UPGRADE');
+      }
+      this.doDash(); // no-ops while locked (see doDash)
     }
 
     // ---- Attack (gated by the attack ability) ----
@@ -251,9 +271,47 @@ export default class Player extends Phaser.GameObjects.Rectangle {
 
   // ---- Dash ------------------------------------------------------------------
   // Dash in the current facing direction (Shift), respecting the cooldown.
+  // Silently does nothing until the dash ability is unlocked.
   doDash() {
+    if (!this.canDash) return;
     if (this.isDashing || this.dashCooldown > 0 || this.frozen || this.isDead) return;
     this.startDash();
+  }
+
+  // Burst of dust at the feet on a hard landing. Lazily creates a shared
+  // particle emitter (with a generated 4x4 white square texture) on first use.
+  spawnLandDust() {
+    if (!this.landDust) {
+      if (!this.scene.textures.exists('landDust')) {
+        const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
+        g.fillStyle(0xffffff, 1);
+        g.fillRect(0, 0, 4, 4);
+        g.generateTexture('landDust', 4, 4);
+        g.destroy();
+      }
+      this.landDust = this.scene.add.particles(0, 0, 'landDust', {
+        speedX: { min: -40, max: 40 },
+        speedY: { min: -60, max: -20 },
+        lifespan: 300,
+        // NOTE: spec said scale 0.15→0, but on a 4x4 texture that's ~0.6px
+        // (sub-pixel, invisible). Bumped to 1→0 so the dust actually renders.
+        scale: { start: 1, end: 0 },
+        tint: COLORS.PLATFORM, // level's primary green (matches jump bursts)
+        emitting: false,
+      }).setDepth(4.5);
+    }
+    this.landDust.emitParticleAt(this.x, this.y + PLAYER.HEIGHT / 2, 6);
+  }
+
+  // One-time, understated floating hint at the player (e.g. dash-locked prompt).
+  showAbilityHint(text) {
+    const t = this.scene.add
+      .text(this.x, this.y - 24, text, { fontFamily: 'monospace', fontSize: '8px', color: '#ff6a00' })
+      .setOrigin(0.5).setDepth(6).setAlpha(0.6);
+    this.scene.tweens.add({
+      targets: t, y: t.y - 20, alpha: 0, duration: 1500, ease: 'Quad.easeOut',
+      onComplete: () => t.destroy(),
+    });
   }
 
   startDash() {
@@ -331,6 +389,9 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     if (this.scene.chromaticHit) this.scene.chromaticHit(1.0, 400); // RGB split
     if (this.scene.shakeScreen) this.scene.shakeScreen(300, 0.012); // shake
     if (this.scene.spawnDeathSplat) this.scene.spawnDeathSplat(this.x, this.y);
+
+    // Second-stage shake fired the instant the hit-pause freeze releases (~80ms).
+    this.scene.time.delayedCall(80, () => this.scene.cameras.main.shake(200, 0.006));
 
     // Existing flash/explode death animation.
     this.visuals.explode();

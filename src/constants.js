@@ -180,6 +180,7 @@ export const LEVEL2_COLLECTIBLE_COUNT = 35;
 export const SFX_MASTER_VOLUME = -6;   // dB on Tone's master destination
 export const SFX_LAND_THROTTLE_MS = 100; // min gap between landing thuds
 export const SFX_ENABLED = true;
+export const MUSIC_VOLUME = 0.6;       // Level 1 background-music volume (0–1)
 
 // ---- Level 1 palette shift (subtle warm/intense drift toward the spire) -----
 export const LEVEL1_PALETTE_START = {

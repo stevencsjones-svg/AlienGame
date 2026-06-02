@@ -187,8 +187,11 @@ export default class Level2 extends Phaser.Scene {
     // Section 4 water reflections (visual, below the waterline).
     this.buildReflections();
 
-    // ---- Player (starts WITHOUT attack) ----
+    // ---- Player: arrives from Level 1 with double-jump + dash; attack is
+    // still locked (unlocked by the Section 2 pickup). ----
     this.player = new Player(this, this.respawnX, this.respawnY);
+    this.player.canDoubleJump = true;
+    this.player.canDash = true;
     this.player.hasAttack = false;
 
     // ---- Route seals (contain the shafts until earned) ----
@@ -792,21 +795,23 @@ export default class Level2 extends Phaser.Scene {
       if (Phaser.Math.Distance.Between(mp.bodyRect.x, mp.bodyRect.y, px, py) < 1000) mp.update(delta);
     }
 
-    // Carry the player when standing on a moving platform (preserve velocity so
-    // they can still walk / jump while riding).
+    // Carry the player when standing on a moving platform. Apply the platform's
+    // delta directly to the physics body position (NOT via body.reset, which
+    // would zero the velocity and cancel the player's own input). This stacks
+    // the carry on top of whatever the physics engine integrates this frame, so
+    // the player can still walk/jump while riding.
     if (this.player.body.blocked.down) {
+      const pb = this.player.body;
       for (const mp of this.movers) {
         const half = mp.bodyRect.width / 2;
         const onIt = px >= mp.bodyRect.x - half - 4
           && px <= mp.bodyRect.x + half + 4
-          && Math.abs(this.player.body.bottom - mp.body.top) < 8;
+          && Math.abs(pb.bottom - mp.body.top) < 8;
         if (onIt && (mp.deltaX || mp.deltaY)) {
-          const vx = this.player.body.velocity.x;
-          const vy = this.player.body.velocity.y;
-          this.player.x += mp.deltaX;
-          this.player.y += mp.deltaY;
-          this.player.body.reset(this.player.x, this.player.y);
-          this.player.body.setVelocity(vx, vy);
+          pb.x += mp.deltaX;
+          pb.y += mp.deltaY;
+          this.player.x = pb.x + pb.halfWidth;
+          this.player.y = pb.y + pb.halfHeight;
           break;
         }
       }
