@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   WORLD, DEATH_Y, COLORS, PLAYER, PLATFORM_THICKNESS, TOTAL_COLLECTIBLES,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR, SPEED_PROGRESSION_MAX_MULTIPLIER,
-  LEVEL1_ZONE_PALETTES, DEV_MODE, MUSIC_VOLUME,
+  LEVEL1_ZONE_PALETTES, DEV_MODE, MUSIC_VOLUME, ZONE_MARKERS, LEVEL_COMPLETE_BEATS,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -157,6 +157,7 @@ export default class Game extends Phaser.Scene {
     this.platformCount = 0; // used to label ~every third platform
     this.deathSplats = [];  // persistent death marks (max 5)
     this.checkpointActive = false;
+    this.triggeredMarkers = new Set(); // zone-marker labels already shown
 
     // Respawn point — starts at the level spawn, updated by the checkpoint.
     this.respawnX = PLAYER.SPAWN_X;
@@ -417,33 +418,30 @@ export default class Game extends Phaser.Scene {
     }
   }
 
-  // Creates a platform as three stacked visual components — a recessed body, a
-  // bright neon top edge, and a faint glow halo above it. The body keeps its
-  // original dimensions and static Arcade body (physics unchanged).
+  // Renders a walkable surface. Two visual treatments share one physics body:
+  //   - Floating PLATFORMS: bright neon top edge, glow halo, fake-3D underside +
+  //     drop shadow — they read as clean, lit slabs hovering in space.
+  //   - Ground FLOORS (city street): a heavier, darker, unlit industrial slab —
+  //     dim top edge, a kerb lip, vertical panelling texture, and NO glow / NO
+  //     underside / NO drop shadow (the street extends to the world floor).
+  // The body keeps its original dimensions and static Arcade body (physics
+  // unchanged) in both cases.
   addPlatform(cx, topY, width, thickness = PLATFORM_THICKNESS, opts = {}) {
-    // ---- Fake-3D depth layers (drawn behind the body) ----
     if (opts.isGround) {
-      // Drop shadow: faint downward glow 14px below the surface.
-      this.add
-        .rectangle(cx, topY + 16, width, 4, COLORS.PLATFORM, 0.06)
-        .setDepth(-2);
-      // Underside face: dark band immediately below the surface. The ground
-      // extends to the world floor (off-screen), so this reads as the slab's
-      // shaded front face just beneath the lit top rather than at the bottom.
-      this.add
-        .rectangle(cx, topY + 6, width, 12, 0x003318, 1)
-        .setDepth(-1);
-    } else {
-      const bottom = topY + thickness;
-      // Drop shadow: width + 4px, 6px tall, 10px below the body bottom.
-      this.add
-        .rectangle(cx, bottom + 13, width + 4, 6, COLORS.PLATFORM, 0.08)
-        .setDepth(-2);
-      // Underside face: 8px tall immediately below the body (physical thickness).
-      this.add
-        .rectangle(cx, bottom + 4, width, 8, 0x004422, 1)
-        .setDepth(-1);
+      this.addFloor(cx, topY, width, thickness);
+      return;
     }
+
+    // ---- Floating platform (UNCHANGED visual treatment) ----
+    const bottom = topY + thickness;
+    // Drop shadow: width + 4px, 6px tall, 10px below the body bottom.
+    this.add
+      .rectangle(cx, bottom + 13, width + 4, 6, COLORS.PLATFORM, 0.08)
+      .setDepth(-2);
+    // Underside face: 8px tall immediately below the body (physical thickness).
+    this.add
+      .rectangle(cx, bottom + 4, width, 8, 0x004422, 1)
+      .setDepth(-1);
 
     // 1. Body — recessed dark fill at 20% opacity. Lit by Light2D so the
     // environment is illuminated by nearby lights (neon edges stay constant).
@@ -454,19 +452,7 @@ export default class Game extends Phaser.Scene {
     this.physics.add.existing(body, true); // static body (unchanged)
     this.platforms.push(body);
 
-    // Ground only: subtle repeating vertical line texture over the body.
-    if (opts.isGround) {
-      const g = this.add.graphics().setDepth(0);
-      g.fillStyle(COLORS.PLATFORM, 0.08);
-      const left = cx - width / 2;
-      const right = cx + width / 2;
-      for (let lx = left + 24; lx < right; lx += 24) {
-        g.fillRect(lx, topY, 1, thickness); // body height only
-      }
-    }
-
     // 2. Top edge — bright 2px neon line sitting on the body's top surface.
-    // Stored on the body so the palette shift can recolour it (Improvement 2).
     body.topEdge = this.add
       .rectangle(cx, topY + 1, width, 2, COLORS.PLATFORM, 1)
       .setDepth(1);
@@ -477,12 +463,48 @@ export default class Game extends Phaser.Scene {
       .setDepth(1);
 
     // Optional atmosphere label on ~every third platform (never on ground).
-    if (!opts.isGround) {
-      if (this.platformCount % 3 === 0) {
-        this.addPlatformLabel(cx, topY + thickness / 2);
-      }
-      this.platformCount++;
+    if (this.platformCount % 3 === 0) {
+      this.addPlatformLabel(cx, topY + thickness / 2);
     }
+    this.platformCount++;
+  }
+
+  // Ground floor segment — the industrial city street. Darker, heavier, unlit,
+  // and pointedly un-glowing so it reads as solid ground rather than a floating
+  // neon platform. No underside face / drop shadow: the street fills down to the
+  // world floor, so neither would ever read. Physics body is identical to a
+  // platform's (same dimensions, same static Arcade body).
+  addFloor(cx, topY, width, thickness) {
+    // 1. Body — dark, near-opaque street slab (#003318 @ 90%). Still lit by
+    // Light2D like platforms, but its own colour is far darker / desaturated.
+    const body = this.add
+      .rectangle(cx, topY + thickness / 2, width, thickness, 0x003318, 0.9)
+      .setDepth(0)
+      .setPipeline('Light2D');
+    this.physics.add.existing(body, true); // static body (unchanged)
+    this.platforms.push(body);
+
+    // 2. Vertical panelling texture — thin lines every 20px across the full
+    // width, full body height, very faint. One Graphics object for all lines
+    // (no per-line game objects). Reads as grating / concrete sections.
+    const g = this.add.graphics().setDepth(0);
+    g.fillStyle(COLORS.PLATFORM, 0.05); // #00ff88 @ 5%
+    const left = cx - width / 2;
+    const right = cx + width / 2;
+    for (let lx = left + 20; lx < right; lx += 20) {
+      g.fillRect(lx, topY, 1, thickness);
+    }
+
+    // 3. Top edge — 3px, dimmer than a platform's, NO glow halo above it.
+    body.topEdge = this.add
+      .rectangle(cx, topY + 1.5, width, 3, 0x00cc66, 0.85)
+      .setDepth(1);
+
+    // 4. Secondary lip — faint 1px line 4px below the top edge (kerb / structural
+    // lip), suggesting the thickness of the street slab.
+    this.add
+      .rectangle(cx, topY + 5.5, width, 1, 0x00cc66, 0.25)
+      .setDepth(1);
   }
 
   // Stamps a small, dim tech label into a platform body.
@@ -704,6 +726,14 @@ export default class Game extends Phaser.Scene {
         onComplete: () => p.destroy(),
       });
     }
+
+    // Subtle camera "beat": zoom in 5% (400ms) then back out (350ms). The panel
+    // (below) fades in as the zoom begins so both animate together (~750ms).
+    this.cameras.main.zoomTo(1.05, 400, 'Sine.easeOut', false, (cam, progress) => {
+      if (progress === 1) {
+        this.cameras.main.zoomTo(1.0, 350, 'Sine.easeIn');
+      }
+    });
 
     // Brief "CHECKPOINT" glass panel (fade in 200, hold 1s, fade out 300).
     const cx = this.scale.width / 2;
@@ -975,7 +1005,7 @@ export default class Game extends Phaser.Scene {
     // Story beat (NAR-006): divider + exile line, fading in after the panel.
     const beatDiv = this.add.rectangle(cx, cy + 132, 280, 1, 0xff6a00, 0).setScrollFactor(0).setDepth(203);
     const beat = this.add
-      .text(cx, cy + 152, "One tier closer. The city above\ndoesn't know you're coming.", {
+      .text(cx, cy + 152, LEVEL_COMPLETE_BEATS[1].beat, {
         fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00', align: 'center',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0);
@@ -1034,6 +1064,40 @@ export default class Game extends Phaser.Scene {
       this.currentZone = zone;
       this.shiftToZone(zone);
     }
+
+    // ---- Zone transition markers (district labels fade in/out on entry) ----
+    ZONE_MARKERS.forEach((marker) => {
+      if (!this.triggeredMarkers.has(marker.x) && this.player.x >= marker.x) {
+        this.triggeredMarkers.add(marker.x);
+
+        const t = this.add.text(this.scale.width / 2, 120, marker.label, {
+          fontFamily: 'Courier New',
+          fontSize: '13px',
+          color: '#00ff88',
+          letterSpacing: 4,
+        });
+        t.setOrigin(0.5, 0.5);
+        t.setScrollFactor(0);
+        t.setDepth(100);
+        t.setAlpha(0);
+
+        this.tweens.add({
+          targets: t,
+          alpha: 0.7,
+          duration: 400,
+          onComplete: () => {
+            this.time.delayedCall(1800, () => {
+              this.tweens.add({
+                targets: t,
+                alpha: 0,
+                duration: 600,
+                onComplete: () => t.destroy(),
+              });
+            });
+          },
+        });
+      }
+    });
 
     // ---- Dev zone indicator (DEV_MODE only) ----
     if (DEV_MODE && this.devZoneText) {

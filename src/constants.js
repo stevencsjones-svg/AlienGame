@@ -202,6 +202,15 @@ export const LEVEL1_PALETTE_END = {
   fog: 0x00ffaa,
 };
 
+// ---- Level 1 zone transition markers (on-screen district labels) ------------
+// As the player passes each x threshold, a brief district label fades in/out.
+export const ZONE_MARKERS = [
+  { x: 1280, label: 'DISTRICT 2 / MARKET SECTOR' },
+  { x: 2560, label: 'DISTRICT 3 / VERTICAL CLIMB' },
+  { x: 3840, label: 'DISTRICT 4 / ROOFTOP APPROACH' },
+  { x: 5120, label: 'DISTRICT 5 / ALIEN SPIRE' },
+];
+
 // ---- Level 1 per-zone atmosphere (background colour temperature) ------------
 // Five colour-temperature stages tracked by player x. Applied to the camera
 // backdrop (bgTint) and the fog overlay (fogColour / fogOpacity). buildingTint
@@ -214,4 +223,51 @@ export const LEVEL1_ZONE_PALETTES = {
   zone3: { bgTint: 0x050a0a, fogColour: 0x001a22, fogOpacity: 0.04, buildingTint: 0x060f10 },
   zone4: { bgTint: 0x080a05, fogColour: 0x111a00, fogOpacity: 0.04, buildingTint: 0x0a1005 },
   zone5: { bgTint: 0x0a0a04, fogColour: 0x1a1400, fogOpacity: 0.05, buildingTint: 0x0f0f04 },
+};
+
+// ---- Level-complete narrative beats (per level) -----------------------------
+// One story beat + accent colour per level. Read by the shared
+// showLevelComplete() overlay (utils/showLevelComplete.js) as the single source
+// of truth for level-complete narrative copy across all ten levels.
+export const LEVEL_COMPLETE_BEATS = {
+  1: {
+    beat: 'One tier closer.\nThe city above doesn\'t know you\'re coming.',
+    accent: '#ff6a00',
+  },
+  2: {
+    beat: 'You climbed out of the dark.\nThey put you there. Remember that.',
+    accent: '#00cc66',
+  },
+  3: {
+    beat: 'The infrastructure bends to no one.\nYou bent it.',
+    accent: '#00ddff',
+  },
+  4: {
+    beat: 'The aspirational class clears a path\nfor anyone determined enough.',
+    accent: '#3366ff',
+  },
+  5: {
+    beat: 'Power managed from behind glass.\nGlass breaks.',
+    accent: '#6633ff',
+  },
+  6: {
+    beat: 'The narrative they built about you\nends here.',
+    accent: '#cc00ff',
+  },
+  7: {
+    beat: 'You can see everything from up here.\nThey should have thought of that.',
+    accent: '#ff6600',
+  },
+  8: {
+    beat: 'Their architecture was built\nto be incomprehensible.\nYou comprehended it.',
+    accent: '#ff3366',
+  },
+  9: {
+    beat: 'The last line of defence.\nBehind you now.',
+    accent: '#ff0033',
+  },
+  10: {
+    beat: 'You were at the top.\nThey took everything.\nYou took it back.',
+    accent: '#ffffff',
+  },
 };

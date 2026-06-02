@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import {
   LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS, DEV_MODE,
+  LEVEL_COMPLETE_BEATS,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -709,7 +710,7 @@ export default class Level2 extends Phaser.Scene {
       // Story beat (NAR-006): divider + exile line, fading in after the panel.
       const beatDiv = this.add.rectangle(cx, cy + 56, 280, 1, 0x00cc66, 0).setScrollFactor(0).setDepth(203);
       const beat = this.add
-        .text(cx, cy + 78, 'You climbed out of the dark.\nThey put you there. Remember that.', {
+        .text(cx, cy + 78, LEVEL_COMPLETE_BEATS[2].beat, {
           fontFamily: 'monospace', fontSize: '11px', color: '#00cc66', align: 'center',
         })
         .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0);
