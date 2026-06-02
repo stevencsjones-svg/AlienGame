@@ -95,6 +95,22 @@ export function showLevelComplete(scene, levelNum, collected, total, secrets, se
     .setOrigin(0.5).setScrollFactor(0).setDepth(301).setAlpha(0);
 
   // ---- Animation sequence ----
+  // Track the timers / blink tween / key handler so they can't outlive the
+  // overlay (the blink tween repeats forever, and the SPACE handler must not
+  // fire onContinue after teardown). Display objects are returned to the caller.
+  const timers = [];
+  let blinkTween = null;
+  let spaceHandler = null;
+
+  const teardown = () => {
+    timers.forEach((t) => t.remove(false));
+    timers.length = 0;
+    if (blinkTween) { blinkTween.stop(); blinkTween = null; }
+    if (spaceHandler) { scene.input.keyboard.off('keydown-SPACE', spaceHandler); spaceHandler = null; }
+    scene.events.off('shutdown', teardown);
+  };
+  scene.events.once('shutdown', teardown);
+
   // 1. Main text pops in.
   scene.tweens.add({
     targets: mainText,
@@ -106,36 +122,35 @@ export function showLevelComplete(scene, levelNum, collected, total, secrets, se
   });
 
   // 2. Collectibles fade in.
-  scene.time.delayedCall(300, () => {
+  timers.push(scene.time.delayedCall(300, () => {
     scene.tweens.add({
       targets: [collectText, secretText].filter(Boolean),
       alpha: 1,
       duration: 300,
     });
-  });
+  }));
 
   // 3. Beat text fades in.
-  scene.time.delayedCall(600, () => {
+  timers.push(scene.time.delayedCall(600, () => {
     scene.tweens.add({ targets: [divider, beatText], alpha: 1, duration: 400 });
-  });
+  }));
 
   // 4. Continue prompt blinks in.
-  scene.time.delayedCall(1800, () => {
-    scene.tweens.add({
+  timers.push(scene.time.delayedCall(1800, () => {
+    blinkTween = scene.tweens.add({
       targets: continueText,
       alpha: 0.4,
       duration: 300,
       yoyo: true,
       repeat: -1,
     });
-  });
+  }));
 
   // 5. Space to continue (armed after 1s so it can't be skipped instantly).
-  scene.time.delayedCall(1000, () => {
-    scene.input.keyboard.once('keydown-SPACE', () => {
-      if (onContinue) onContinue();
-    });
-  });
+  timers.push(scene.time.delayedCall(1000, () => {
+    spaceHandler = () => { teardown(); if (onContinue) onContinue(); };
+    scene.input.keyboard.once('keydown-SPACE', spaceHandler);
+  }));
 
   // Return all objects for external cleanup.
   return [overlay, mainText, collectText, secretText, divider, beatText, continueText].filter(Boolean);

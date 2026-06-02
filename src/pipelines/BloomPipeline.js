@@ -28,8 +28,7 @@ export default class BloomPipeline extends Phaser.Renderer.WebGL.Pipelines.PostF
           weights[0]=0.227; weights[1]=0.194; weights[2]=0.121;
           weights[3]=0.054; weights[4]=0.016;
 
-          bloom += texture2D(uMainSampler, outTexCoord).rgb
-            * weights[0];
+          bloom += original.rgb * weights[0];
           for(int i = 1; i < 5; i++) {
             vec2 off = vec2(texel.x * float(i), 0.0);
             bloom += texture2D(uMainSampler,

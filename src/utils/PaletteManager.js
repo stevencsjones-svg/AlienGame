@@ -12,7 +12,7 @@ class PaletteManager {
   constructor(scene) {
     this.scene = scene;
     this.currentPalette = {};
-    this.targetPalette = {};
+    this._tween = null; // in-flight transition (so a new one can cancel it)
   }
 
   // Instantly adopt a palette (no visual update — callers apply colours).
@@ -23,10 +23,11 @@ class PaletteManager {
   // Smoothly tween from the current palette to `palette` over `duration` ms,
   // invoking onUpdate(interpolated) each frame.
   transitionTo(palette, duration, onUpdate) {
-    this.targetPalette = { ...palette };
+    // Cancel any in-flight transition so two don't race on onUpdate/onComplete.
+    if (this._tween) this._tween.stop();
     const start = { ...this.currentPalette };
 
-    this.scene.tweens.addCounter({
+    this._tween = this.scene.tweens.addCounter({
       from: 0,
       to: 1,
       duration,
@@ -49,6 +50,7 @@ class PaletteManager {
       },
       onComplete: () => {
         this.currentPalette = { ...palette };
+        this._tween = null;
       },
     });
   }

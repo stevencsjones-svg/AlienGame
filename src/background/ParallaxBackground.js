@@ -457,14 +457,14 @@ export default class ParallaxBackground {
     // Spores rise; respawn at the bottom.
     for (const s of this.spores) {
       s.y -= s.vy * (delta / 1000);
-      if (s.y < 0) { s.y = sh; s.x = Math.random() * sw; }
+      if (s.y < 0) { s.y = sh; s.x = this.rng() * sw; }
     }
 
     // Drips fall then fade, then re-seed.
     for (const d of this.drips) {
       d.t += delta;
       const cycle = 4000;
-      if (d.t >= cycle) { d.t -= cycle; d.x = Math.random() * sw; d.y0 = Math.random() * sh * 0.6; }
+      if (d.t >= cycle) { d.t -= cycle; d.x = this.rng() * sw; d.y0 = this.rng() * sh * 0.6; }
       const ph = d.t / cycle;
       if (ph < 0.3) { const k = ph / 0.3; d.y = d.y0 + k * 30; d.setAlpha(0.12 * (1 - k)); } else { d.setAlpha(0); }
     }

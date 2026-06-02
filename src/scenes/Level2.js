@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import {
   LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS, DEV_MODE,
-  LEVEL_COMPLETE_BEATS,
+  LEVEL_COMPLETE_BEATS, LEVEL2_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COUNT,
+  HIDDEN_COLLECTIBLE_COLOR,
 } from '../constants.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
@@ -134,7 +135,7 @@ export default class Level2 extends Phaser.Scene {
     // ---- State ----
     this.collectedCount = 0;
     this.secretsFound = 0;
-    this.totalCollectibles = 35; // HUD reads this
+    this.totalCollectibles = LEVEL2_COLLECTIBLE_COUNT; // HUD reads this
     this.levelDone = false;
     this.reachedSection4 = false;
     this.cinematicDone = false;
@@ -552,8 +553,8 @@ export default class Level2 extends Phaser.Scene {
     if (hidden) {
       this.secretsFound++;
       SFX.collectSecret();
-      spawnPickupShards(this, x, y, 0xff6a00, 12, 45);
-      this.player.visuals.flashCount(this.secretsFound, 0xff6a00, 1200);
+      spawnPickupShards(this, x, y, HIDDEN_COLLECTIBLE_COLOR, 12, 45);
+      this.player.visuals.flashCount(this.secretsFound, HIDDEN_COLLECTIBLE_COLOR, 1200);
     } else {
       this.collectedCount++;
       SFX.collect();
@@ -699,7 +700,7 @@ export default class Level2 extends Phaser.Scene {
       const panel = makeGlassPanel(this, cx, cy, 340, 90).setScrollFactor(0).setDepth(202);
       const main = this.add.text(cx, cy - 8, 'LEVEL 2 COMPLETE', { fontFamily: 'monospace', fontSize: '30px', color: '#ff6a00' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(203);
-      const sub = this.add.text(cx, cy + 26, `${this.collectedCount} / ${this.totalCollectibles}  •  ${this.secretsFound} / 3 SECRETS`, {
+      const sub = this.add.text(cx, cy + 26, `${this.collectedCount} / ${this.totalCollectibles}  •  ${this.secretsFound} / ${HIDDEN_COLLECTIBLE_COUNT} SECRETS`, {
         fontFamily: 'monospace', fontSize: '13px', color: '#00aacc',
       }).setOrigin(0.5).setScrollFactor(0).setDepth(203);
       [[panel, cy], [main, cy - 8], [sub, cy + 26]].forEach(([o, ty]) => {

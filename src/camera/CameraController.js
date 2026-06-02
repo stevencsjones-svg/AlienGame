@@ -30,8 +30,8 @@ export default class CameraController {
   }
 
   // Call each frame. Starts the follow on first call, then keeps the lerp synced
-  // to the current mode.
-  update(player, delta) {
+  // to the current mode. (Callers may pass a delta; it's unused here.)
+  update(player) {
     const [lx, ly] = MODES[this.mode] || MODES.horizontal;
     if (!this._following) {
       this.camera.startFollow(player, true, lx, ly);
