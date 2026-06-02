@@ -271,3 +271,102 @@ export const LEVEL_COMPLETE_BEATS = {
     accent: '#ffffff',
   },
 };
+
+// ---- Per-level colour palettes (Levels 1–10) --------------------------------
+// Data only — consumed by the existing PaletteManager system. Each entry is the
+// full palette for that level (platform / dim / enemy / collectible / accent /
+// fog / backdrop tint). Stored here so each level scene has its palette ready
+// when built; this block introduces no logic.
+export const LEVEL_PALETTES = {
+  1: {
+    platform: 0x00ff88,
+    platformDim: 0x004422,
+    enemy: 0xbf00ff,
+    collectible: 0x00e5ff,
+    accent: 0xff6a00,
+    fog: 0x00ff88,
+    bgTint: 0x050a08,
+  },
+  2: {
+    platform: 0x00cc66,
+    platformDim: 0x003322,
+    enemy: 0x880099,
+    collectible: 0x00aacc,
+    accent: 0xff6a00,
+    fog: 0x00cc66,
+    bgTint: 0x040808,
+  },
+  3: {
+    platform: 0x00ddff,
+    platformDim: 0x003344,
+    enemy: 0x6600ff,
+    collectible: 0x00ffee,
+    accent: 0xff6a00,
+    fog: 0x00ddff,
+    bgTint: 0x050a0f,
+  },
+  4: {
+    platform: 0x3366ff,
+    platformDim: 0x001144,
+    enemy: 0xaa44ff,
+    collectible: 0x00ccff,
+    accent: 0xff6a00,
+    fog: 0x3366ff,
+    bgTint: 0x060810,
+  },
+  5: {
+    platform: 0x6633ff,
+    platformDim: 0x220044,
+    enemy: 0xcc00ff,
+    collectible: 0xddccff,
+    accent: 0xff6a00,
+    fog: 0x6633ff,
+    bgTint: 0x07060f,
+  },
+  6: {
+    platform: 0xcc00ff,
+    platformDim: 0x440055,
+    enemy: 0xff0099,
+    collectible: 0xffaaee,
+    accent: 0xff6a00,
+    fog: 0xcc00ff,
+    bgTint: 0x0a0514,
+  },
+  7: {
+    platform: 0xff6600,
+    platformDim: 0x442200,
+    enemy: 0xffaa00,
+    collectible: 0xffddaa,
+    accent: 0x00e5ff,
+    fog: 0xff6600,
+    bgTint: 0x0f0a04,
+  },
+  8: {
+    platform: 0xff3366,
+    platformDim: 0x440011,
+    enemy: 0xcc0044,
+    collectible: 0xffaacc,
+    accent: 0x00e5ff,
+    fog: 0xff3366,
+    bgTint: 0x0c0810,
+  },
+  9: {
+    platform: 0xff0033,
+    platformDim: 0x440000,
+    enemy: 0x880000,
+    collectible: 0xff8899,
+    accent: 0x00e5ff,
+    fog: 0xff0033,
+    bgTint: 0x080408,
+  },
+  10: {
+    // Cycles through all palettes in code; white finale room handled separately.
+    platform: 0xffffff,
+    platformDim: 0x444444,
+    enemy: 0xffffff,
+    collectible: 0xffffff,
+    accent: 0xffffff,
+    fog: 0xffffff,
+    bgTint: 0x080808,
+  },
+};
