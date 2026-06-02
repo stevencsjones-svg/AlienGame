@@ -31,6 +31,11 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
     this.footPhase = 0;
     this.swayTime = 0;
 
+    // Proximity aggro: speeds up + brightens its eye when the player is near.
+    this.isAggro = false;
+    this.aggroTimer = 0;
+    this.eyeBaseColor = CYAN;
+
     // ---- Visual parts (relative to the body centre) ----
     this.outerShell = scene.add.rectangle(0, 0, 30, 16, PURPLE, 0.15);
     this.footL = scene.add.rectangle(-8, 6, 5, 4, PURPLE, 0.6);
@@ -47,6 +52,20 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
   update(time, delta) {
     this.prevDirection = this.direction;
 
+    // ---- Proximity aggro ----
+    const player = this.scene.player;
+    if (player) {
+      const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+      if (dist < 300) {
+        this.aggroTimer = 1500; // refresh while in range (so it doesn't flicker)
+        if (!this.isAggro) { this.isAggro = true; this.flashEye(0xffffff); }
+      }
+    }
+    if (this.isAggro) {
+      this.aggroTimer -= delta;
+      if (this.aggroTimer <= 0) { this.isAggro = false; this.flashEye(this.eyeBaseColor); }
+    }
+
     // ---- Behaviour (UNCHANGED) ----
     // Only re-evaluate direction while grounded so we don't jitter mid-fall.
     if (this.body.blocked.down) {
@@ -58,7 +77,7 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
         this.direction *= -1;
       }
     }
-    this.body.setVelocityX(ENEMY.DRONE_SPEED * this.direction);
+    this.body.setVelocityX(ENEMY.DRONE_SPEED * this.direction * (this.isAggro ? 1.2 : 1));
 
     // ---- Turn flash + "REROUTING" data readout on direction flip ----
     if (this.direction !== this.prevDirection) {
@@ -84,16 +103,36 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
     this.eye.x = this.direction;
   }
 
+  // Tween the eye fill from its current colour to `color` over 150ms. Guarded
+  // so a tween in flight can't touch the eye after the drone is destroyed.
+  flashEye(color) {
+    if (this._eyeTween) this._eyeTween.stop();
+    const from = Phaser.Display.Color.ValueToColor(this.eye.fillColor);
+    const to = Phaser.Display.Color.ValueToColor(color);
+    this._eyeTween = this.scene.tweens.addCounter({
+      from: 0, to: 1, duration: 150,
+      onUpdate: (tw) => {
+        if (this.dead || !this.eye.scene) return;
+        const c = Phaser.Display.Color.Interpolate.ColorWithColor(from, to, 100, tw.getValue() * 100);
+        this.eye.setFillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
+      },
+    });
+  }
+
   // "REROUTING" glitch readout above the drone (fade in 80, hold 400, out 150).
+  // Capture the scene up front: the drone can be destroyed (killed) before the
+  // delayed fade-out fires, which nulls this.scene — the readout text is
+  // scene-owned, so it still fades and cleans itself up.
   showReadout() {
-    const txt = this.scene.add
+    const scene = this.scene;
+    const txt = scene.add
       .text(this.x, this.y - H / 2 - 8, 'REROUTING', {
         fontFamily: 'monospace', fontSize: '7px', color: '#bf00ff',
       })
       .setOrigin(0.5).setDepth(6).setAlpha(0);
-    this.scene.tweens.add({ targets: txt, alpha: 1, duration: 80 });
-    this.scene.time.delayedCall(480, () => {
-      this.scene.tweens.add({ targets: txt, alpha: 0, duration: 150, onComplete: () => txt.destroy() });
+    scene.tweens.add({ targets: txt, alpha: 1, duration: 80 });
+    scene.time.delayedCall(480, () => {
+      scene.tweens.add({ targets: txt, alpha: 0, duration: 150, onComplete: () => txt.destroy() });
     });
   }
 

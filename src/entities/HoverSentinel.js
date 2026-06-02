@@ -27,6 +27,11 @@ export default class HoverSentinel extends Phaser.GameObjects.Rectangle {
     this.bobTime = 0;   // ms accumulator
     this.orbitTime = 0; // antenna-orbit accumulator
 
+    // Proximity aggro: orbits faster + brightens its core when the player is near.
+    this.isAggro = false;
+    this.aggroTimer = 0;
+    this.coreBaseColor = PURPLE;
+
     // ---- Ground shadow (cast on the nearest surface below) ----
     let surfaceY = null;
     const plats = scene.platforms || [];
@@ -70,6 +75,20 @@ export default class HoverSentinel extends Phaser.GameObjects.Rectangle {
   update(time, delta) {
     this.bobTime += delta;
 
+    // ---- Proximity aggro ----
+    const player = this.scene.player;
+    if (player) {
+      const dist = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
+      if (dist < 300) {
+        this.aggroTimer = 1500; // refresh while in range (so it doesn't flicker)
+        if (!this.isAggro) { this.isAggro = true; this.flashCore(0xffffff); }
+      }
+    }
+    if (this.isAggro) {
+      this.aggroTimer -= delta;
+      if (this.aggroTimer <= 0) { this.isAggro = false; this.flashCore(this.coreBaseColor); }
+    }
+
     // ---- Bob (UNCHANGED behaviour) ----
     const phase = (this.bobTime / ENEMY.SENTINEL_BOB_PERIOD) * Math.PI * 2;
     this.y = this.startY + ENEMY.SENTINEL_BOB * Math.sin(phase);
@@ -82,7 +101,7 @@ export default class HoverSentinel extends Phaser.GameObjects.Rectangle {
     // container's own bob and the counter-motion together) AND slowly orbit the
     // core (micro-motion) — the core itself does not rotate.
     const k = ((3 + ENEMY.SENTINEL_BOB) / ENEMY.SENTINEL_BOB) * (this.y - this.startY);
-    this.orbitTime += delta;
+    this.orbitTime += delta * (this.isAggro ? 1.3 : 1); // orbit faster while aggro'd
     const a = (this.orbitTime / 4000) * Math.PI * 2; // 360deg over 4s
     const R = 12;
     const place = (s, base) => s.setPosition(R * Math.cos(base + a), R * Math.sin(base + a) - k);
@@ -96,6 +115,22 @@ export default class HoverSentinel extends Phaser.GameObjects.Rectangle {
       const offset = (this.y - this.startY) / ENEMY.SENTINEL_BOB; // -1..1
       this.shadow.setScale(1 + 0.25 * offset);
     }
+  }
+
+  // Tween the core fill from its current colour to `color` over 150ms. Guarded
+  // so a tween in flight can't touch the core after the sentinel is destroyed.
+  flashCore(color) {
+    if (this._coreTween) this._coreTween.stop();
+    const from = Phaser.Display.Color.ValueToColor(this.core.fillColor);
+    const to = Phaser.Display.Color.ValueToColor(color);
+    this._coreTween = this.scene.tweens.addCounter({
+      from: 0, to: 1, duration: 150,
+      onUpdate: (tw) => {
+        if (this.dead || !this.core.scene) return;
+        const c = Phaser.Display.Color.Interpolate.ColorWithColor(from, to, 100, tw.getValue() * 100);
+        this.core.setFillStyle(Phaser.Display.Color.GetColor(c.r, c.g, c.b));
+      },
+    });
   }
 
   // Killed by the player's attack: white flash, particle burst, shake, destroy.

@@ -133,14 +133,17 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
     if (this.scene.shakeScreen) this.scene.shakeScreen(80, 0.004);
 
     // "TARGET ACQUIRED" data readout (fade in 100, hold 600, out 200).
-    const txt = this.scene.add
+    // Capture the scene: the seeker can be killed before this fade-out fires,
+    // which would null this.scene (the readout text is scene-owned).
+    const scene = this.scene;
+    const txt = scene.add
       .text(this.x, this.y - H / 2 - 8, 'TARGET ACQUIRED', {
         fontFamily: 'monospace', fontSize: '7px', color: '#ff6a00',
       })
       .setOrigin(0.5).setDepth(6).setAlpha(0);
-    this.scene.tweens.add({ targets: txt, alpha: 1, duration: 100 });
-    this.scene.time.delayedCall(700, () => {
-      this.scene.tweens.add({ targets: txt, alpha: 0, duration: 200, onComplete: () => txt.destroy() });
+    scene.tweens.add({ targets: txt, alpha: 1, duration: 100 });
+    scene.time.delayedCall(700, () => {
+      scene.tweens.add({ targets: txt, alpha: 0, duration: 200, onComplete: () => txt.destroy() });
     });
   }
 
