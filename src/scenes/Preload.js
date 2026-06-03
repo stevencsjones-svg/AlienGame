@@ -41,24 +41,36 @@ export default class Preload extends Phaser.Scene {
     if (!anims.exists('player_walk')) {
       anims.create({
         key: 'player_walk',
-        frames: anims.generateFrameNumbers(PLAYER_SHEET_KEY, { frames: [f(1,0), f(1,1), f(1,2), f(1,3), f(1,4), f(1,5), f(1,6)] }),
-        frameRate: 14,
+        // TEMP WORKAROUND: cols 2 & 3 carry the baked box/crosshair artifact
+        // (~70% border) and cols 1 & 4 its ~20% edge-bleed — same defect as the
+        // jump row. Using only the pristine frames (cols 0, 5, 6 ~0-3% border)
+        // until a cleaned sheet is supplied. Restore to cols 0..6 once fixed.
+        frames: anims.generateFrameNumbers(PLAYER_SHEET_KEY, { frames: [f(1,0), f(1,5), f(1,6)] }),
+        frameRate: 8,
         repeat: -1,
       });
     }
     if (!anims.exists('player_jump')) {
       anims.create({
         key: 'player_jump',
-        frames: anims.generateFrameNumbers(PLAYER_SHEET_KEY, { frames: [f(2,0), f(2,1), f(2,2), f(2,3), f(2,4), f(2,5)] }),
-        frameRate: 12,
+        // TEMP WORKAROUND: cols 2 & 3 of player.png have a box/crosshair artifact
+        // baked into the sheet (~80% border opacity) and cols 1 & 4 carry ~20%
+        // edge-bleed of it — all of which framed the character in a "square"
+        // mid-jump. Using ONLY the two pristine frames (cols 0 & 5, ~0% border)
+        // until a cleaned sheet is supplied. Restore to cols 0..5 once fixed.
+        frames: anims.generateFrameNumbers(PLAYER_SHEET_KEY, { frames: [f(2,0), f(2,5)] }),
+        frameRate: 6,
         repeat: 0,
       });
     }
     if (!anims.exists('player_fall')) {
       anims.create({
         key: 'player_fall',
-        frames: anims.generateFrameNumbers(PLAYER_SHEET_KEY, { frames: [f(3,0), f(3,1), f(3,2), f(3,3)] }),
-        frameRate: 10,
+        // TEMP WORKAROUND: same cols 2 & 3 artifact (cols 4-6 of this row are
+        // empty), so fall uses only the two clean frames. Restore to cols 0..3
+        // once the art is fixed.
+        frames: anims.generateFrameNumbers(PLAYER_SHEET_KEY, { frames: [f(3,0), f(3,1)] }),
+        frameRate: 6,
         repeat: -1,
       });
     }
