@@ -13,6 +13,7 @@ import MovingPlatform from '../entities/MovingPlatform.js';
 import AbilityPickup from '../entities/AbilityPickup.js';
 import ShieldPickup from '../entities/ShieldPickup.js';
 import ParallaxBackground from '../background/ParallaxBackground.js';
+import UndergroundAtmosphere from '../background/UndergroundAtmosphere.js';
 import ChromaticAberrationPipeline from '../pipelines/ChromaticAberrationPipeline.js';
 import DiegeticHUD from '../ui/DiegeticHUD.js';
 import { buildPlatformVisual } from '../entities/platformVisual.js';
@@ -151,6 +152,7 @@ export default class Level2 extends Phaser.Scene {
     this.dustTimer = 0;
     this.respawnX = 100;
     this.respawnY = 580;
+    this.checkpointActive = false;
 
     // ---- Post-FX (Bloom -> Chromatic -> CRT) ----
     if (this.renderer && this.renderer.type === Phaser.WEBGL) {
@@ -165,6 +167,9 @@ export default class Level2 extends Phaser.Scene {
 
     // ---- Background (Bioluminescent Deep City) ----
     this.background = new ParallaxBackground(this, LEVEL2_PARALLAX);
+
+    // ---- Underground atmosphere (bats, rocks, drips, dust, stalactites, pools) ----
+    this.atmosphere = new UndergroundAtmosphere(this);
 
     // ---- Section dressing (walls, overlays, water, signs) ----
     this.buildDressing();
@@ -198,6 +203,9 @@ export default class Level2 extends Phaser.Scene {
 
     // ---- Route seals (contain the shafts until earned) ----
     this.buildSeals();
+
+    // ---- Checkpoint ----
+    this.createCheckpoint();
 
     // ---- Pickups ----
     this.abilityPickup = new AbilityPickup(this, 4100, 610, 'attack', 'ATTACK', 'ATTACK UNLOCKED\nPress Z to attack');
@@ -238,6 +246,7 @@ export default class Level2 extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.abilityPickup.trigger, this.onAbility, null, this);
     this.physics.add.overlap(this.player, this.shieldPickup.trigger, this.onShield, null, this);
     this.physics.add.overlap(this.player, this.portal.trigger, this.onLevelComplete, null, this);
+    this.physics.add.overlap(this.player, this.checkpoint, this.onCheckpoint, null, this);
 
     // Attack: the player's hitbox kills any enemy it overlaps.
     this.enemies = this.add.group([...this.drones, ...this.sentinels, ...this.seekers]);
@@ -531,6 +540,67 @@ export default class Level2 extends Phaser.Scene {
     });
   }
 
+  // ---- Checkpoint (plunge shaft entrance) ------------------------------------
+  createCheckpoint() {
+    const x = 7600;
+    const y = 600;
+    // Dim body until activated; brightens permanently on touch.
+    this.checkpoint = this.add.rectangle(x, y, 20, 36, P.ACCENT, 0.7).setDepth(1);
+    this.physics.add.existing(this.checkpoint, true);
+    // Bright left edge — same treatment as Game.js.
+    this.checkpointEdge = this.add.rectangle(x - 9, y, 2, 36, P.ACCENT, 1).setDepth(1);
+    this.add
+      .text(x, y - 26, '//SAVE', { fontFamily: 'monospace', fontSize: '7px', color: '#ff6a00' })
+      .setOrigin(0.5).setAlpha(0.5).setDepth(1);
+  }
+
+  onCheckpoint() {
+    if (this.checkpointActive) return;
+    this.checkpointActive = true;
+    SFX.checkpoint();
+
+    // Stays fully lit once activated.
+    this.checkpoint.setFillStyle(P.ACCENT, 1);
+
+    // Update the respawn point.
+    this.respawnX = 7600;
+    this.respawnY = 580;
+
+    // Upward particle burst (6 orange particles), matching Game.js style.
+    for (let i = 0; i < 6; i++) {
+      const px = 7600 + (i - 2.5) * 4;
+      const p = this.add.rectangle(px, 590, 3, 3, P.ACCENT, 1).setDepth(2);
+      this.tweens.add({
+        targets: p,
+        y: 590 - Phaser.Math.Between(30, 55),
+        alpha: 0,
+        duration: 400,
+        ease: 'Quad.easeOut',
+        onComplete: () => p.destroy(),
+      });
+    }
+
+    // Camera beat: zoom in 5% then back out.
+    this.cameras.main.zoomTo(1.05, 400, 'Sine.easeOut', false, (cam, progress) => {
+      if (progress === 1) this.cameras.main.zoomTo(1.0, 350, 'Sine.easeIn');
+    });
+
+    // Glassmorphism "CHECKPOINT" panel (fade in 200ms, hold 1s, fade out 300ms).
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2 - 60;
+    const panel = makeGlassPanel(this, cx, cy, 180, 40).setScrollFactor(0).setDepth(204).setAlpha(0);
+    const label = this.add
+      .text(cx, cy, 'CHECKPOINT', { fontFamily: 'monospace', fontSize: '12px', color: '#ff6a00' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(205).setAlpha(0);
+    this.tweens.add({ targets: [panel, label], alpha: 1, duration: 200 });
+    this.time.delayedCall(1200, () => {
+      this.tweens.add({
+        targets: [panel, label], alpha: 0, duration: 300,
+        onComplete: () => { panel.destroy(); label.destroy(); },
+      });
+    });
+  }
+
   // Static platform: layered visual + static body + Light2D.
   addPlatform(cx, topY, w, h) {
     const { body } = buildPlatformVisual(this, cx, topY, w, h, P, false);
@@ -758,6 +828,7 @@ export default class Level2 extends Phaser.Scene {
     }
 
     this.background.update();
+    this.atmosphere.update(time, delta);
     this.player.update(time, delta);
 
     const px = this.player.x;
