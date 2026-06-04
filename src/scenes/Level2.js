@@ -2,8 +2,9 @@ import Phaser from 'phaser';
 import {
   LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS, DEV_MODE,
   LEVEL_COMPLETE_BEATS, LEVEL2_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COUNT,
-  HIDDEN_COLLECTIBLE_COLOR,
+  HIDDEN_COLLECTIBLE_COLOR, ASSIST_MODE,
 } from '../constants.js';
+import AssistMode from '../utils/AssistMode.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
 import HoverSentinel from '../entities/HoverSentinel.js';
@@ -39,23 +40,28 @@ let level2TitleShown = false;
 // =============================================================================
 
 const GROUND = [
-  [3900, 660, 7800, 20],   // S1+S2 floor (x0–7800; floor ends at the plunge lip)
-  [7000, 5660, 14000, 20], // S4 floor (full width)
+  // S1+S2 floor split around two death pits.
+  [1050, 660, 2100, 20], // left segment  (x:0–2100)
+  [3930, 660, 3140, 20], // centre segment (x:2360–5500; pit 1 gap x:2100–2360)
+  [6760, 660, 2080, 20], // right segment  (x:5720–7800; pit 2 gap x:5500–5720)
+  [7000, 5660, 14000, 20], // S4 floor (full width, unchanged)
 ];
 
 const PLATFORMS = [
-  // --- Section 1 (x0–4000) ---
-  [180, 560, 140, 14], [400, 500, 120, 14], [600, 560, 160, 14], [820, 480, 140, 14],
-  [1060, 540, 120, 14], [1260, 460, 160, 14], [1500, 520, 140, 14], [1720, 460, 120, 14],
-  [1960, 540, 160, 14], [2200, 480, 140, 14], [2420, 540, 120, 14], [2640, 460, 160, 14],
-  [2880, 520, 140, 14], [3100, 460, 120, 14], [3320, 540, 160, 14], [3520, 480, 140, 14],
-  [3700, 540, 120, 14], [3860, 460, 160, 14],
-  // --- Section 2 (x4000–8000) ---
-  [4100, 560, 120, 14], [4300, 500, 100, 14], [4480, 560, 140, 14], [4680, 480, 120, 14],
-  [4880, 540, 100, 14], [5060, 480, 140, 14], [5260, 540, 120, 14], [5460, 480, 100, 14],
-  [5640, 540, 140, 14], [5840, 480, 120, 14], [6040, 540, 100, 14], [6240, 480, 140, 14],
-  [6440, 540, 120, 14], [6640, 480, 100, 14], [6840, 540, 140, 14], [7040, 480, 120, 14],
-  [7240, 540, 100, 14], [7460, 480, 140, 14],
+  // --- Section 1 (x0–4000) — thinned for deliberate rhythm ---
+  // Removed: x:400, x:1060, x:1960, x:2420, x:3100, x:3700
+  // Added:   x:580 (replaces the removed mover at startX:500)
+  [180, 560, 140, 14], [580, 540, 100, 14], [600, 560, 160, 14], [820, 480, 140, 14],
+  [1260, 460, 160, 14], [1500, 520, 140, 14], [1720, 460, 120, 14],
+  [2200, 480, 140, 14], [2640, 460, 160, 14],
+  [2880, 520, 140, 14], [3320, 540, 160, 14], [3520, 480, 140, 14], [3860, 460, 160, 14],
+  // --- Section 2 (x4000–8000) — every other platform kept ---
+  // Removed: x:4300,4480,4880,5060,5460,5640,6040,6240,6640,6840,7240
+  // Adjusted: x:5260 w:120 → x:5340 w:280 (extends to x:5480 flush with pit 2)
+  // Added:    x:5740 w:120 (landing platform on far side of pit 2)
+  [4100, 560, 120, 14], [4680, 480, 120, 14],
+  [5340, 540, 280, 14], [5740, 540, 120, 14], [5840, 480, 120, 14],
+  [6440, 540, 120, 14], [7040, 480, 120, 14], [7460, 480, 140, 14],
   // --- Section 3 (plunge shaft, zigzag) ---
   [7620, 900, 160, 14], [8220, 1100, 160, 14], [7620, 1300, 160, 14], [8220, 1500, 160, 14],
   [7620, 1700, 160, 14], [8220, 1900, 160, 14], [7620, 2100, 160, 14], [8220, 2300, 160, 14],
@@ -82,7 +88,7 @@ const PLATFORMS = [
 
 // [startX, topY, range, speed] — all horizontal.
 const MOVERS = [
-  [500, 580, 200, 55], [1400, 540, 300, 70], [2800, 500, 300, 60],   // S1
+  [1400, 540, 300, 70], [2800, 500, 300, 60],                        // S1 (x:500 mover removed; replaced by static platform)
   [4600, 580, 300, 65], [6400, 560, 300, 75],                        // S2
   [7620, 1000, 600, 45], [7620, 2600, 600, 55], [7620, 4200, 600, 65], // S3
   [6600, 5540, 300, 55], [4100, 5540, 300, 65], [2000, 5540, 300, 75], // S4
@@ -92,7 +98,7 @@ const MOVERS = [
 // Ground drones [x, y] — y sits just above the floor so they settle on it.
 const DRONES = [
   [300, 640], [800, 640], [1500, 640], [2400, 640], [3200, 640],                 // S1
-  [4300, 640], [4800, 640], [5200, 640], [5700, 640], [6200, 640], [6700, 640], [7200, 640], // S2
+  [4300, 640], [4800, 640], [5200, 640], [5750, 640], [6200, 640], [6700, 640], [7200, 640], // S2 (5700 → 5750, clear of pit 2)
   [7200, 5640], [6400, 5640], [5600, 5640], [4800, 5640], [2800, 5640], [1800, 5640], // S4
 ];
 
@@ -153,6 +159,8 @@ export default class Level2 extends Phaser.Scene {
     this.respawnX = 100;
     this.respawnY = 580;
     this.checkpointActive = false;
+    this.pauseMode = 'main';
+    this.assistSelection = 0;
 
     // ---- Post-FX (Bloom -> Chromatic -> CRT) ----
     if (this.renderer && this.renderer.type === Phaser.WEBGL) {
@@ -194,6 +202,16 @@ export default class Level2 extends Phaser.Scene {
     // Section 4 water reflections (visual, below the waterline).
     this.buildReflections();
 
+    // ---- Death pit kill zones (invisible static triggers 100px below floor gaps) ----
+    // Only fire in Section 1/2 (horizontal), not S5 which shares the same x range at the top.
+    this.pitKillZone1 = this.add.rectangle(2230, 760, 260, 20).setVisible(false);
+    this.physics.add.existing(this.pitKillZone1, true);
+    this.pitKillZone2 = this.add.rectangle(5610, 760, 220, 20).setVisible(false);
+    this.physics.add.existing(this.pitKillZone2, true);
+
+    // ---- World signs (environmental storytelling) ----
+    this.createWorldSigns();
+
     // ---- Player: arrives from Level 1 with double-jump + dash; attack is
     // still locked (unlocked by the Section 2 pickup). ----
     this.player = new Player(this, this.respawnX, this.respawnY);
@@ -214,7 +232,12 @@ export default class Level2 extends Phaser.Scene {
     // ---- Enemies ----
     DRONES.forEach(([x, y]) => this.drones.push(new GroundDrone(this, x, y)));
     SENTINELS.forEach(([x, y]) => this.sentinels.push(new HoverSentinel(this, x, y)));
+    // Existing S4 intro seeker (slow, short-range — first encounter).
     this.seekers.push(new Seeker(this, 3600, 5620, this.player, { speed: ENEMY.SEEKER_SPEED_L1, aggro: 300 }));
+    // Three additional seekers — full speed, escalating threat.
+    this.seekers.push(new Seeker(this, 5900, 620,  this.player, { speed: ENEMY.SEEKER_SPEED,        aggro: 260 })); // S2 — after pit 2
+    this.seekers.push(new Seeker(this, 4200, 5620, this.player, { speed: ENEMY.SEEKER_SPEED,        aggro: 280 })); // S4 mid
+    this.seekers.push(new Seeker(this, 1600, 5620, this.player, { speed: ENEMY.SEEKER_SPEED * 1.15, aggro: 300 })); // S4 near ascent
 
     // ---- Collectibles ----
     COLLECTIBLES.forEach(([x, y]) => this.collectibles.push(createCollectible(this, x, y, P.COLLECTIBLE, false)));
@@ -247,6 +270,9 @@ export default class Level2 extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.shieldPickup.trigger, this.onShield, null, this);
     this.physics.add.overlap(this.player, this.portal.trigger, this.onLevelComplete, null, this);
     this.physics.add.overlap(this.player, this.checkpoint, this.onCheckpoint, null, this);
+    // Death pits: only lethal in horizontal sections (not S5, which shares x range at the top).
+    this.physics.add.overlap(this.player, this.pitKillZone1, this.onPitDeath, null, this);
+    this.physics.add.overlap(this.player, this.pitKillZone2, this.onPitDeath, null, this);
 
     // Attack: the player's hitbox kills any enemy it overlaps.
     this.enemies = this.add.group([...this.drones, ...this.sentinels, ...this.seekers]);
@@ -321,6 +347,8 @@ export default class Level2 extends Phaser.Scene {
   pauseScene() {
     this.isPaused = true;
     this.pauseSelection = 0;
+    this.pauseMode = 'main';
+    this.assistSelection = 0;
     this.physics.pause();
     this.tweens.pauseAll();
     this.time.paused = true;
@@ -329,6 +357,7 @@ export default class Level2 extends Phaser.Scene {
 
   resumeScene() {
     this.isPaused = false;
+    this.pauseMode = 'main';
     this.physics.resume();
     this.tweens.resumeAll();
     this.time.paused = false;
@@ -340,13 +369,14 @@ export default class Level2 extends Phaser.Scene {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
     const dim = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0.75).setScrollFactor(0).setDepth(300);
-    const panel = makeGlassPanel(this, cx, cy, 280, 190).setScrollFactor(0).setDepth(301);
-    const title = this.add.text(cx, cy - 54, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00cc66' }).setOrigin(0.5).setScrollFactor(0).setDepth(302);
-    const sep = this.add.rectangle(cx, cy - 28, 200, 1, 0x00cc66, 0.6).setScrollFactor(0).setDepth(302);
-    this.resumeText = this.add.text(cx - 60, cy - 2, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
-    this.restartText = this.add.text(cx - 60, cy + 26, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
-    this.mainMenuText = this.add.text(cx - 60, cy + 54, 'MAIN MENU', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
-    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText, this.mainMenuText];
+    const panel = makeGlassPanel(this, cx, cy, 280, 215).setScrollFactor(0).setDepth(301);
+    const title = this.add.text(cx, cy - 64, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00cc66' }).setOrigin(0.5).setScrollFactor(0).setDepth(302);
+    const sep = this.add.rectangle(cx, cy - 40, 200, 1, 0x00cc66, 0.6).setScrollFactor(0).setDepth(302);
+    this.resumeText = this.add.text(cx - 60, cy - 14, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.restartText = this.add.text(cx - 60, cy + 14, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.assistText = this.add.text(cx - 60, cy + 42, 'ASSIST', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.mainMenuText = this.add.text(cx - 60, cy + 70, 'MAIN MENU', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' }).setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText, this.assistText, this.mainMenuText];
     this.refreshPauseSelection();
   }
 
@@ -354,17 +384,21 @@ export default class Level2 extends Phaser.Scene {
     if (!this.resumeText) return;
     this.resumeText.setText(`${this.pauseSelection === 0 ? '> ' : '  '}RESUME`).setAlpha(this.pauseSelection === 0 ? 1 : 0.6);
     this.restartText.setText(`${this.pauseSelection === 1 ? '> ' : '  '}RESTART`).setAlpha(this.pauseSelection === 1 ? 1 : 0.6);
-    this.mainMenuText.setText(`${this.pauseSelection === 2 ? '> ' : '  '}MAIN MENU`).setAlpha(this.pauseSelection === 2 ? 1 : 0.6);
+    this.assistText.setText(`${this.pauseSelection === 2 ? '> ' : '  '}ASSIST`).setAlpha(this.pauseSelection === 2 ? 1 : 0.6);
+    this.mainMenuText.setText(`${this.pauseSelection === 3 ? '> ' : '  '}MAIN MENU`).setAlpha(this.pauseSelection === 3 ? 1 : 0.6);
   }
 
   updatePauseMenu() {
+    // Dispatch to assist submenu when it is open.
+    if (this.pauseMode === 'assist') { this.updateAssistMenu(); return; }
+
     const k = this.pauseKeys;
     if (Phaser.Input.Keyboard.JustDown(k.up) || Phaser.Input.Keyboard.JustDown(k.w)) {
       this.pauseSelection = Math.max(0, this.pauseSelection - 1);
       this.refreshPauseSelection();
     }
     if (Phaser.Input.Keyboard.JustDown(k.down) || Phaser.Input.Keyboard.JustDown(k.s)) {
-      this.pauseSelection = Math.min(2, this.pauseSelection + 1);
+      this.pauseSelection = Math.min(3, this.pauseSelection + 1);
       this.refreshPauseSelection();
     }
     if (Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.enter)) {
@@ -376,6 +410,9 @@ export default class Level2 extends Phaser.Scene {
         this.time.paused = false;
         this.isPaused = false;
         this.scene.restart();
+      } else if (this.pauseSelection === 2) {
+        // ASSIST: open the assist submenu (stays paused).
+        this._openAssistOverlay();
       } else {
         this.physics.resume();
         this.tweens.resumeAll();
@@ -388,6 +425,112 @@ export default class Level2 extends Phaser.Scene {
           this.scene.start('MainMenu');
           this.scene.stop(this.scene.key); // 'Level2'
         });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Assist overlay — mirrors Game.js implementation exactly (same colours).
+  // ---------------------------------------------------------------------------
+  _openAssistOverlay() {
+    this.pauseMode = 'assist';
+    this.assistSelection = 0;
+    if (this.pauseUI) this.pauseUI.forEach((o) => o.destroy());
+    this.pauseUI = null;
+    this.buildAssistOverlay();
+  }
+
+  _closeAssistOverlay() {
+    this.pauseMode = 'main';
+    if (this.pauseUI) this.pauseUI.forEach((o) => o.destroy());
+    this.pauseUI = null;
+    this.buildPauseOverlay();
+  }
+
+  buildAssistOverlay() {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+
+    const dim = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0.75)
+      .setScrollFactor(0).setDepth(300);
+    const panel = makeGlassPanel(this, cx, cy, 280, 220).setScrollFactor(0).setDepth(301);
+    const header = this.add
+      .text(cx, cy - 88, 'ASSIST MODE', { fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(302).setAlpha(0.6);
+    const divider = this.add.rectangle(cx, cy - 75, 240, 1, 0xff6a00, 0.2)
+      .setScrollFactor(0).setDepth(302);
+
+    const OPTIONS = [
+      { key: 'reducedEnemySpeed', name: 'REDUCED ENEMY SPEED', desc: 'Enemies move at 60% normal speed' },
+      { key: 'slowerGameSpeed',   name: 'SLOWER GAME SPEED',   desc: 'Game runs at 75% speed'           },
+      { key: 'invincibility',     name: 'INVINCIBILITY',       desc: 'Player cannot die'                },
+    ];
+    const ROW_Y = [cy - 56, cy - 12, cy + 32];
+
+    this.assistRows = OPTIONS.map((opt, i) => {
+      const y = ROW_Y[i];
+      const on = AssistMode.get(opt.key);
+      const arrow = this.add.text(cx - 108, y, '▶', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0);
+      const checkbox = this.add.text(cx - 94, y, on ? '[✓]' : '[ ]', { fontFamily: 'monospace', fontSize: '12px', color: on ? '#ff6a00' : '#00ff88' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(on ? 0.9 : 0.4);
+      const name = this.add.text(cx - 68, y, opt.name, { fontFamily: 'monospace', fontSize: '13px', color: '#00ff88' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0.5);
+      const desc = this.add.text(cx - 68, y + 15, opt.desc, { fontFamily: 'monospace', fontSize: '9px', color: '#00ff88' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0.3);
+      return { arrow, checkbox, name, desc, key: opt.key };
+    });
+
+    const backArrow = this.add.text(cx - 42, cy + 78, '▶', { fontFamily: 'monospace', fontSize: '10px', color: '#ff6a00' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0);
+    const backText = this.add.text(cx - 24, cy + 78, 'BACK', { fontFamily: 'monospace', fontSize: '10px', color: '#00ff88' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0.4);
+    this.assistBackRow = { arrow: backArrow, text: backText };
+
+    this.pauseUI = [
+      dim, panel, header, divider,
+      ...this.assistRows.flatMap((r) => [r.arrow, r.checkbox, r.name, r.desc]),
+      backArrow, backText,
+    ];
+    this.refreshAssistSelection();
+  }
+
+  refreshAssistSelection() {
+    if (!this.assistRows) return;
+    this.assistRows.forEach((row, i) => {
+      const sel = i === this.assistSelection;
+      const on = AssistMode.get(row.key);
+      row.arrow.setAlpha(sel ? 1 : 0);
+      row.name.setAlpha(sel ? 1 : 0.5);
+      row.desc.setAlpha(sel ? 0.55 : 0.3);
+      row.checkbox.setText(on ? '[✓]' : '[ ]');
+      row.checkbox.setColor(on ? '#ff6a00' : '#00ff88');
+      row.checkbox.setAlpha(on ? 0.9 : (sel ? 0.7 : 0.4));
+    });
+    if (this.assistBackRow) {
+      const backSel = this.assistSelection === 3;
+      this.assistBackRow.arrow.setAlpha(backSel ? 1 : 0);
+      this.assistBackRow.text.setAlpha(backSel ? 1 : 0.4);
+    }
+  }
+
+  updateAssistMenu() {
+    const k = this.pauseKeys;
+    if (Phaser.Input.Keyboard.JustDown(k.up) || Phaser.Input.Keyboard.JustDown(k.w)) {
+      this.assistSelection = Math.max(0, this.assistSelection - 1);
+      this.refreshAssistSelection();
+    }
+    if (Phaser.Input.Keyboard.JustDown(k.down) || Phaser.Input.Keyboard.JustDown(k.s)) {
+      this.assistSelection = Math.min(3, this.assistSelection + 1);
+      this.refreshAssistSelection();
+    }
+    if (Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.enter)) {
+      if (this.assistSelection === 3) {
+        this._closeAssistOverlay();
+      } else {
+        const keys = ['reducedEnemySpeed', 'slowerGameSpeed', 'invincibility'];
+        AssistMode.toggle(keys[this.assistSelection]);
+        this.refreshAssistSelection();
       }
     }
   }
@@ -434,6 +577,24 @@ export default class Level2 extends Phaser.Scene {
     rect(805, 2400, 785, 1200, P.FOG, 0.06, 1.45);
     rect(805, 1200, 785, 1200, P.FOG, 0.10, 1.45);
     rect(805, 400, 785, 800, P.FOG, 0.16, 1.45);
+
+    // --- Death pit 1 (S1, x:2100–2360) ---
+    rect(2100, 660, 260, 200, 0x000000, 0.95, -0.5);          // bottomless void
+    rect(2098, 648, 2, 24, P.PLATFORM, 1.0, 1.5);             // left edge lip
+    rect(2360, 648, 2, 24, P.PLATFORM, 1.0, 1.5);             // right edge lip
+    rect(2100, 660, 260, 1, 0xbf00ff, 0.20, 1.4);             // alien energy line at break
+    this.add.text(2230, 630, '▼ CONDEMNED', {
+      fontFamily: 'monospace', fontSize: '7px', color: '#ff0000',
+    }).setOrigin(0.5).setAlpha(0.35).setDepth(1.4);
+
+    // --- Death pit 2 (S2, x:5500–5720) ---
+    rect(5500, 660, 220, 200, 0x000000, 0.95, -0.5);
+    rect(5498, 648, 2, 24, P.PLATFORM, 1.0, 1.5);
+    rect(5720, 648, 2, 24, P.PLATFORM, 1.0, 1.5);
+    rect(5500, 660, 220, 1, 0xbf00ff, 0.20, 1.4);
+    this.add.text(5610, 630, '▼ STRUCTURAL FAILURE', {
+      fontFamily: 'monospace', fontSize: '7px', color: '#ff0000',
+    }).setOrigin(0.5).setAlpha(0.35).setDepth(1.4);
   }
 
   // ---------------------------------------------------------------------------
@@ -609,9 +770,88 @@ export default class Level2 extends Phaser.Scene {
     this.platforms.push(body);
   }
 
+  // --- World signs — exact reuse of Game.js addWorldSign -------------------
+  addWorldSign(x, y, line1, line2, opts = {}) {
+    const cfg = {
+      colour: '#00ff88', opacity: 0.35, size: 8, scrollFactor: 1.0, ...opts,
+    };
+    if (opts.panel) {
+      const w = Math.max(line1.length, (line2 || '').length) * 5 + 12;
+      const h = line2 ? 24 : 14;
+      this.add
+        .rectangle(x - 6, line2 ? y + 9 : y + 4, w, h, 0x000000, 0.4)
+        .setOrigin(0, 0.5).setScrollFactor(cfg.scrollFactor).setDepth(1.9);
+    }
+    // NOTE: Phaser ignores `alpha` in the text style — opacity must be set via
+    // setAlpha(), otherwise every sign renders fully opaque.
+    this.add
+      .text(x, y, line1, { fontSize: `${cfg.size}px`, fontFamily: 'monospace', color: cfg.colour })
+      .setScrollFactor(cfg.scrollFactor).setDepth(2).setAlpha(cfg.opacity);
+    if (line2) {
+      this.add
+        .text(x, y + 10, line2, { fontSize: `${cfg.size - 1}px`, fontFamily: 'monospace', color: cfg.colour })
+        .setScrollFactor(cfg.scrollFactor).setDepth(2).setAlpha(cfg.opacity * 0.7);
+    }
+  }
+
+  createWorldSigns() {
+    // Section 1 — Industrial corridor (x: 0–4000)
+    this.addWorldSign(120,  720, 'UNDERCITY — TIER 0',                       'BELOW AUTHORISED CITY BOUNDARIES',         { colour: '#ff6a00', opacity: 0.40, panel: true });
+    this.addWorldSign(400,  680, 'CITY MAINTENANCE ZONE B',                  'NON-RESIDENTS: REPORT TO PROCESSING',      { colour: '#00cc66', opacity: 0.28 });
+    this.addWorldSign(740,  740, "// THEY DON'T KNOW WE'RE HERE //",         null,                                       { colour: '#00cc66', opacity: 0.16 });
+    this.addWorldSign(1100, 700, 'CONDEMNED SECTOR — NO SERVICES',           'CITY AUTHORITY ACCEPTS NO LIABILITY',      { colour: '#ff6a00', opacity: 0.30, panel: true });
+    this.addWorldSign(1600, 660, 'POPULATION: UNREGISTERED',                 'STATUS: OUTSIDE TIER SYSTEM',              { colour: '#ff0000', opacity: 0.24 });
+    this.addWorldSign(2200, 720, '// WE WERE STREET LEVEL ONCE //',          null,                                       { colour: '#00cc66', opacity: 0.14 });
+    this.addWorldSign(2800, 680, 'LAST ABOVE-GROUND CONTACT: UNKNOWN',       'UNDERCITY RESIDENTS: NOT CITY CITIZENS',   { colour: '#ff6a00', opacity: 0.26, panel: true });
+    this.addWorldSign(3400, 700, 'PIPE NETWORK B7 — CRITICAL INFRASTRUCTURE','AUTHORISED DRONES ONLY BEYOND THIS POINT', { colour: '#00cc66', opacity: 0.22 });
+
+    // Section 2 — Pipe maze (x: 4000–8000)
+    this.addWorldSign(4100, 700, 'ATTACK SYSTEMS ACTIVE — TIER 0 PROTOCOL', 'UNREGISTERED MOVEMENT: ENGAGE ON SIGHT',   { colour: '#ff0000', opacity: 0.32, panel: true });
+    this.addWorldSign(4600, 660, '// SOMEONE CAME THROUGH HERE //',          '// RECENTLY //',                           { colour: '#00cc66', opacity: 0.16 });
+    this.addWorldSign(5200, 720, 'INFRASTRUCTURE CLASS — BELOW THIS LEVEL',  "YOU ARE BENEATH THE CITY'S NOTICE",        { colour: '#ff6a00', opacity: 0.26 });
+    this.addWorldSign(5800, 680, 'EMERGENCY EXIT — SURFACE: DENIED',         'TIER 0 RESIDENTS HAVE NO EXIT RIGHTS',     { colour: '#ff0000', opacity: 0.28, panel: true });
+    this.addWorldSign(6600, 700, '// HOW LONG HAVE THEY BEEN DOWN HERE //',  null,                                       { colour: '#00cc66', opacity: 0.14 });
+    this.addWorldSign(7200, 660, 'SHAFT B7 — SURFACE ACCESS',                'MAINTENANCE ONLY — ALL OTHERS: TERMINATE', { colour: '#ff6a00', opacity: 0.35, panel: true });
+
+    // Section 3 — Plunge shaft (signs on alternating walls at platform heights)
+    this.addWorldSign(7640, 880,  'DEPTH: 220m BELOW STREET LEVEL',          null,                                       { colour: '#00cc66', opacity: 0.22 });
+    this.addWorldSign(8240, 1480, 'DEPTH: 820m — BEYOND CITY RECORDS',       null,                                       { colour: '#00cc66', opacity: 0.20 });
+    this.addWorldSign(7640, 2080, '// NOBODY COMES THIS DEEP //',             null,                                       { colour: '#00cc66', opacity: 0.16 });
+    this.addWorldSign(8240, 2680, 'DEPTH: 2100m — UNCHARTED',                 'CITY AUTHORITY HAS NO DATA BELOW THIS POINT', { colour: '#ff6a00', opacity: 0.24, panel: true });
+    this.addWorldSign(7640, 3280, '// SOMETHING LIVES DOWN HERE //',          null,                                       { colour: '#ff0000', opacity: 0.18 });
+    this.addWorldSign(8240, 4480, 'DEPTH: UNKNOWN',                           'YOU SHOULD NOT BE HERE',                   { colour: '#ff0000', opacity: 0.30, panel: true });
+
+    // Section 4 — The deep (x: 800–7800, world y: 5340–5820)
+    this.addWorldSign(7400, 5660, 'THE DEEP — NO DESIGNATION',               'CITY MAPS END 400m ABOVE THIS POINT',      { colour: '#ff6a00', opacity: 0.36, panel: true });
+    this.addWorldSign(6600, 5700, '// WE BUILT THIS CITY //',                '// AND THEY BURIED US UNDER IT //',        { colour: '#00cc66', opacity: 0.20 });
+    this.addWorldSign(5800, 5660, 'HOSTILE BIOLOGICAL PRESENCE DETECTED',    'CITY AUTHORITY ADVISES: DO NOT ENGAGE',    { colour: '#ff0000', opacity: 0.28, panel: true });
+    this.addWorldSign(4600, 5700, '// THERE IS NO UP FROM HERE //',          '// THERE IS NO DOWN EITHER //',            { colour: '#00cc66', opacity: 0.14 });
+    this.addWorldSign(3600, 5660, 'WARNING — HOSTILE UNIT PATROLLING',       'LAST REGISTERED CASUALTY: UNKNOWN',        { colour: '#ff0000', opacity: 0.32, panel: true });
+    this.addWorldSign(2400, 5700, '// KEEP MOVING //',                       null,                                       { colour: '#00cc66', opacity: 0.18 });
+    this.addWorldSign(1400, 5660, 'ASCENT SHAFT — SURFACE: 5400m ABOVE',    'ACCESS RESTORED — ROUTE UNLOCKED',         { colour: '#ff6a00', opacity: 0.40, panel: true });
+
+    // Section 5 — Ascent shaft (signs on alternating walls at platform heights)
+    this.addWorldSign(820,  5180, 'DEPTH: 4900m — BEGINNING ASCENT',        null,                                       { colour: '#00cc66', opacity: 0.20 });
+    this.addWorldSign(1440, 4180, "// THE CITY DOESN'T KNOW YOU SURVIVED //", null,                                     { colour: '#00cc66', opacity: 0.16 });
+    this.addWorldSign(820,  3180, 'DEPTH: 2600m — CONTINUE ASCENDING',      null,                                       { colour: '#00cc66', opacity: 0.22 });
+    this.addWorldSign(1440, 2180, '// THEY THOUGHT THIS WOULD STOP YOU //', null,                                       { colour: '#00cc66', opacity: 0.16 });
+    this.addWorldSign(820,  1180, 'APPROACHING STREET LEVEL',                'TIER 1 — 800m ABOVE',                      { colour: '#ff6a00', opacity: 0.28, panel: true });
+    this.addWorldSign(1440, 580,  'SURFACE ACCESS — TRANSIT NETWORK',        'TIER 3 — KEEP CLIMBING',                   { colour: '#00ff88', opacity: 0.38, panel: true });
+  }
+
   // --- Overlap handlers -----------------------------------------------------
   onPlayerHit() {
+    if (AssistMode.get('invincibility')) return;
     this.player.takeHit();
+  }
+
+  // Death pits — instant kill, bypasses shield. Guard: only lethal in horizontal
+  // sections so the S5 ascent shaft (shares x range with pit 1) is never affected.
+  onPitDeath() {
+    if (this.player.isDead) return;
+    if (AssistMode.get('invincibility')) return;
+    if (this.getSection(this.player.x, this.player.y) !== 'horizontal') return;
+    this.player.die();
   }
 
   onCollect(player, c) {
@@ -815,7 +1055,11 @@ export default class Level2 extends Phaser.Scene {
 
     // ESC toggles pause (not after the level is finished).
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
-      this.togglePause();
+      if (this.isPaused && this.pauseMode === 'assist') {
+        this._closeAssistOverlay();
+      } else {
+        this.togglePause();
+      }
     }
     if (this.isPaused) {
       this.updatePauseMenu();
@@ -825,6 +1069,14 @@ export default class Level2 extends Phaser.Scene {
     if (this.levelDone) {
       this.player.update(time, delta);
       return;
+    }
+
+    // Assist mode: smooth physics timeScale toward target (0.75 or 1.0).
+    const targetScale = AssistMode.get('slowerGameSpeed') ? ASSIST_MODE.GAME_SPEED_MULTIPLIER : 1.0;
+    if (Math.abs(this.physics.world.timeScale - targetScale) > 0.001) {
+      this.physics.world.timeScale = Phaser.Math.Linear(this.physics.world.timeScale, targetScale, 0.05);
+    } else {
+      this.physics.world.timeScale = targetScale;
     }
 
     this.background.update();
@@ -910,6 +1162,6 @@ export default class Level2 extends Phaser.Scene {
     if (portalText) portalText.setAlpha(0.3 + 0.2 * (0.5 + 0.5 * Math.sin(t / 1000)));
 
     // Fell out of the world.
-    if (!this.player.isDead && this.player.y > H) this.player.die();
+    if (!this.player.isDead && this.player.y > H && !AssistMode.get('invincibility')) this.player.die();
   }
 }

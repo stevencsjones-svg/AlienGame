@@ -19,6 +19,38 @@ export default class MovingPlatform {
     this.body = body.body;      // Arcade static body (Level2 colliders use bodyRect)
     this.layers = layers;
 
+    // ---- Moving-platform visual distinction ----
+    // Destructure the layers built by buildPlatformVisual (moving=true):
+    //   [0] underside  [1] mainBody  [2] edge  [3] glow  [4] movingGlow
+    const [, mainBody, edge, glow, movingGlow] = layers;
+
+    // Teal-shifted body fill (#006644 vs static #003322) at higher opacity.
+    mainBody.setFillStyle(0x006644, 0.75);
+
+    // Amber top edge — primary signal that this platform moves.
+    edge.setFillStyle(0xff6a00, 1.0);
+
+    // Hide the standard green glow lines; amber edge is the only accent.
+    glow.setAlpha(0);
+    if (movingGlow) movingGlow.setAlpha(0);
+
+    // Mechanical indicator rects below the underside — suggest it runs on rails.
+    // Underside: centred at topY+h+4, height 8 → bottom at topY+h+8. +4 gap +2 halfHeight = topY+h+14.
+    const indCY = topY + h + 14;
+    const ind1 = scene.add.rectangle(x - w * 0.25, indCY, 6, 4, 0xff6a00, 0.35).setDepth(0);
+    const ind2 = scene.add.rectangle(x + w * 0.25, indCY, 6, 4, 0xff6a00, 0.35).setDepth(0);
+    layers.push(ind1, ind2); // include in layers so they move with the platform
+
+    // Amber edge pulses between 70 % and 100 % opacity over 1.2 s.
+    scene.tweens.add({
+      targets: edge,
+      alpha: { from: 0.70, to: 1.0 },
+      duration: 1200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
     this.axis = axis;
     this.range = range;
     this.speed = speed;

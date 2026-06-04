@@ -1,5 +1,9 @@
 import Phaser from 'phaser';
 import { VIEW, GRAVITY, BG_HEX } from './constants.js';
+import AssistMode from './utils/AssistMode.js';
+
+// Load persisted assist settings before the first scene runs.
+AssistMode.load();
 import Preload from './scenes/Preload.js';
 import MainMenu from './scenes/MainMenu.js';
 import Game from './scenes/Game.js';

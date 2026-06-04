@@ -20,6 +20,13 @@ export const VIEW = {
 
 export const GRAVITY = 1200;
 
+// ---- Assist mode multipliers ------------------------------------------------
+// Applied on top of normal speed values — never mutate the base constants.
+export const ASSIST_MODE = {
+  ENEMY_SPEED_MULTIPLIER: 0.6,  // applied to every enemy's movement per frame
+  GAME_SPEED_MULTIPLIER:  0.75, // applied to physics.world.timeScale
+};
+
 // Dev flag: when true, narrative beats that would interrupt iteration (the
 // opening title cards) are skipped silently. Set to false for playtest builds.
 export const DEV_MODE = true;

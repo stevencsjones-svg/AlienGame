@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
-import { ENEMY, COLORS } from '../constants.js';
+import { ENEMY, COLORS, ASSIST_MODE } from '../constants.js';
 import SFX from '../audio/SFX.js';
+import AssistMode from '../utils/AssistMode.js';
 
 // =============================================================================
 // Seeker
@@ -27,6 +28,7 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
     // Chase speed / detection are configurable per level (Level 1 is slower /
     // shorter-ranged). Defaults preserve the original Level 1 behaviour.
     this.speed = config.speed || ENEMY.SEEKER_SPEED;
+    this.baseSpeed = this.speed; // unmodified; assist multiplier applied per frame
     this.aggro = config.aggro || ENEMY.SEEKER_AGGRO;
     this.deaggro = config.deaggro || (this.aggro + (ENEMY.SEEKER_DEAGGRO - ENEMY.SEEKER_AGGRO));
 
@@ -66,15 +68,18 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
       this.eye.setFillStyle(0xffffff, 0.9); // eye back to white when calm
     }
 
+    const speedMult = AssistMode.get('reducedEnemySpeed') ? ASSIST_MODE.ENEMY_SPEED_MULTIPLIER : 1.0;
+    const effectiveSpeed = this.baseSpeed * speedMult;
+
     if (this.chasing) {
       const angle = Phaser.Math.Angle.Between(this.x, this.y, p.x, p.y);
-      this.body.setVelocity(Math.cos(angle) * this.speed, Math.sin(angle) * this.speed);
+      this.body.setVelocity(Math.cos(angle) * effectiveSpeed, Math.sin(angle) * effectiveSpeed);
       this.faceToward(p.x);
     } else {
       const homeDist = Phaser.Math.Distance.Between(this.x, this.y, this.startX, this.startY);
       if (homeDist > 4) {
         const angle = Phaser.Math.Angle.Between(this.x, this.y, this.startX, this.startY);
-        this.body.setVelocity(Math.cos(angle) * this.speed * 0.6, Math.sin(angle) * this.speed * 0.6);
+        this.body.setVelocity(Math.cos(angle) * effectiveSpeed * 0.6, Math.sin(angle) * effectiveSpeed * 0.6);
         this.faceToward(this.startX);
       } else {
         this.body.setVelocity(0, 0);

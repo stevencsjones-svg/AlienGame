@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { TOTAL_COLLECTIBLES, HIDDEN_COLLECTIBLE_COUNT } from '../constants.js';
 import SFX from '../audio/SFX.js';
+import AssistMode from '../utils/AssistMode.js';
 
 // =============================================================================
 // UI
@@ -42,6 +43,13 @@ export default class UI extends Phaser.Scene {
     this.muteIcon = this.add
       .text(this.scale.width - 14, 14, '♪', { fontFamily: 'monospace', fontSize: '8px', color: '#00ff88' })
       .setOrigin(1, 0).setAlpha(0.4);
+
+    // Assist mode indicator (bottom-right). Visible only when any option is active.
+    this.assistIndicator = this.add
+      .text(this.scale.width - 12, this.scale.height - 12, 'ASSIST', {
+        fontFamily: 'monospace', fontSize: '8px', color: '#ff6a00',
+      })
+      .setOrigin(1, 1).setAlpha(0);
   }
 
   // Whichever gameplay scene is currently running.
@@ -54,6 +62,11 @@ export default class UI extends Phaser.Scene {
     // Mute indicator (always live, independent of the gameplay scene).
     this.muteIcon.x = this.scale.width - 14;
     this.muteIcon.setText(SFX.enabled ? '♪' : '♪̶');
+
+    // Assist indicator — bottom-right, shown whenever any option is active.
+    this.assistIndicator.x = this.scale.width - 12;
+    this.assistIndicator.y = this.scale.height - 12;
+    this.assistIndicator.setAlpha(AssistMode.any() ? 0.5 : 0);
 
     const gs = this.gameplayScene();
     if (!gs || !gs.player) return;

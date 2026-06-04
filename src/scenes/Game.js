@@ -3,7 +3,9 @@ import {
   WORLD, DEATH_Y, COLORS, PLAYER, PLATFORM_THICKNESS, TOTAL_COLLECTIBLES,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR, SPEED_PROGRESSION_MAX_MULTIPLIER,
   LEVEL1_ZONE_PALETTES, DEV_MODE, MUSIC_VOLUME, ZONE_MARKERS, LEVEL_COMPLETE_BEATS,
+  ASSIST_MODE,
 } from '../constants.js';
+import AssistMode from '../utils/AssistMode.js';
 import Player from '../entities/Player.js';
 import GroundDrone from '../entities/GroundDrone.js';
 import HoverSentinel from '../entities/HoverSentinel.js';
@@ -158,6 +160,8 @@ export default class Game extends Phaser.Scene {
     this.deathSplats = [];  // persistent death marks (max 5)
     this.checkpointActive = false;
     this.triggeredMarkers = new Set(); // zone-marker labels already shown
+    this.pauseMode = 'main';           // 'main' | 'assist' — which pause overlay is shown
+    this.assistSelection = 0;          // selected row inside the assist submenu
 
     // Respawn point — starts at the level spawn, updated by the checkpoint.
     this.respawnX = PLAYER.SPAWN_X;
@@ -346,34 +350,38 @@ export default class Game extends Phaser.Scene {
   }
 
   createWorldSigns() {
-    // Zone 1 — Tutorial street
-    this.addWorldSign(60, 720, 'TIER 1 — STREET LEVEL', 'AUTHORISED PERSONNEL ONLY', { colour: '#ff6a00', opacity: 0.4, panel: true });
-    this.addWorldSign(180, 680, 'GROUND DRONE PATROL ACTIVE', null, { colour: '#ff0000', opacity: 0.3 });
-    this.addWorldSign(340, 560, 'EXILE ALERT — SECTOR 1', 'REPORT SIGHTINGS TO CITY CONTROL', { colour: '#ff6a00', opacity: 0.25, panel: true });
-    this.addWorldSign(600, 740, '// WANTED //', 'IDENTITY: UNKNOWN — TIER: REVOKED', { colour: '#00ff88', opacity: 0.3 });
-    this.addWorldSign(900, 700, 'MARKET DISTRICT — ZONE A', null, { colour: '#00ff88', opacity: 0.2 });
+    // Zone 1 — Tutorial street (x: 0–1200)
+    this.addWorldSign(80,   720, 'TIER 1 — STREET LEVEL',               'AUTHORISED PERSONNEL ONLY',               { colour: '#ff6a00', opacity: 0.45, panel: true });
+    this.addWorldSign(280,  680, 'GROUND DRONE PATROL ACTIVE',           'REPORT DISTURBANCES: NODE-7',             { colour: '#ff0000', opacity: 0.30 });
+    this.addWorldSign(520,  740, '// EXILE ALERT — SECTOR 1A //',        'IDENTITY REVOKED — APPROACH WITH CAUTION', { colour: '#ff6a00', opacity: 0.28, panel: true });
+    this.addWorldSign(780,  700, 'WANTED',                               'FORMER TIER 9 — IDENTITY UNKNOWN',        { colour: '#ffffff', opacity: 0.22 });
+    this.addWorldSign(1000, 660, 'CITY CONTROL — ZONE A BOUNDARY',       null,                                      { colour: '#00ff88', opacity: 0.18 });
 
-    // Zone 2 — Market district
-    this.addWorldSign(1300, 720, 'TIER ACCESS: STREET AND BELOW', 'UPPER TIERS REQUIRE CLEARANCE', { colour: '#ff6a00', opacity: 0.3, panel: true });
-    this.addWorldSign(1600, 680, '// THEY WATCH FROM ABOVE //', null, { colour: '#00ff88', opacity: 0.18 });
-    this.addWorldSign(1900, 740, 'NODE-7 SURVEILLANCE ACTIVE', 'ALL MOVEMENT LOGGED', { colour: '#ff0000', opacity: 0.25 });
-    this.addWorldSign(2100, 700, 'UNDERCITY ACCESS — SHAFT B7', '▼ MAINTENANCE ONLY', { colour: '#ff6a00', opacity: 0.35, panel: true });
+    // Zone 2 — Market district (x: 1200–2400)
+    this.addWorldSign(1280, 720, 'MARKET SECTOR — TIER 1 COMMERCE',      'UPPER TIER ACCESS: CLEARANCE REQUIRED',   { colour: '#ff6a00', opacity: 0.32, panel: true });
+    this.addWorldSign(1560, 680, '// THEY WATCH FROM ABOVE //',          null,                                      { colour: '#00ff88', opacity: 0.16 });
+    this.addWorldSign(1820, 740, 'NODE-7 SURVEILLANCE ACTIVE',           'ALL MOVEMENT LOGGED AND RETAINED',        { colour: '#ff0000', opacity: 0.24 });
+    this.addWorldSign(2080, 700, 'UNDERCITY ACCESS — SHAFT B7',          '▼ MAINTENANCE AND CONDEMNED ONLY',        { colour: '#ff6a00', opacity: 0.38, panel: true });
+    this.addWorldSign(2280, 660, 'ELEVATION PERMIT REQUIRED ABOVE THIS POINT', null,                               { colour: '#00ff88', opacity: 0.20 });
 
-    // Zone 3 — Vertical climb
-    this.addWorldSign(2500, 720, 'VERTICAL TRANSIT RESTRICTED', 'UPPER TIERS MONITORING THIS SECTOR', { colour: '#ff6a00', opacity: 0.28, panel: true });
-    this.addWorldSign(2700, 500, '// HOW FAR WILL YOU GET //', null, { colour: '#00ff88', opacity: 0.15 });
-    this.addWorldSign(2900, 300, 'TIER 2 — TRANSIT NETWORK', 'CLEARANCE LEVEL: DENIED', { colour: '#ff0000', opacity: 0.3, panel: true });
+    // Zone 3 — Vertical climb (x: 2400–3600)
+    this.addWorldSign(2480, 720, 'VERTICAL TRANSIT — RESTRICTED',        'TIER 2+ CLEARANCE REQUIRED',              { colour: '#ff6a00', opacity: 0.30, panel: true });
+    this.addWorldSign(2700, 480, '// HOW FAR WILL YOU GET //',           null,                                      { colour: '#00ff88', opacity: 0.14 });
+    this.addWorldSign(2900, 360, 'TRANSIT NETWORK — TIER 3',             'ACCESS DENIED — CLEARANCE: REVOKED',      { colour: '#ff0000', opacity: 0.32, panel: true });
+    this.addWorldSign(3200, 420, 'ALTITUDE MONITORING ACTIVE',           'UNAUTHORISED ASCENT WILL BE REPORTED',    { colour: '#ff6a00', opacity: 0.24 });
 
-    // Zone 4 — Rooftop gauntlet
-    this.addWorldSign(3700, 680, 'CORPORATE DISTRICT — RESTRICTED', 'TIERS 4-6 ABOVE THIS POINT', { colour: '#ff6a00', opacity: 0.3, panel: true });
-    this.addWorldSign(4000, 720, 'SENTINEL COVERAGE: FULL', null, { colour: '#ff0000', opacity: 0.28 });
-    this.addWorldSign(4300, 660, '// THEY TOOK EVERYTHING //', '// YOU ARE GOING BACK //', { colour: '#00ff88', opacity: 0.22 });
+    // Zone 4 — Rooftop gauntlet (x: 3600–4800)
+    this.addWorldSign(3700, 650, 'CORPORATE DISTRICT — TIER 4+',         'STREET LEVEL ACCESS ENDS HERE',           { colour: '#ff6a00', opacity: 0.32, panel: true });
+    this.addWorldSign(3980, 700, 'FULL SENTINEL COVERAGE ACTIVE',        null,                                      { colour: '#ff0000', opacity: 0.26 });
+    this.addWorldSign(4240, 660, '// THEY TOOK EVERYTHING //',           '// YOU ARE GOING BACK //',                { colour: '#00ff88', opacity: 0.20 });
+    this.addWorldSign(4520, 700, 'PROPERTY OF CITY ADMINISTRATIVE BODY', 'TIER 5 — TRESPASS: LETHAL RESPONSE',     { colour: '#ff6a00', opacity: 0.28, panel: true });
 
-    // Zone 5 — Alien spire
-    this.addWorldSign(4900, 700, 'INNER SANCTUM — TIER 7+', 'UNAUTHORISED ACCESS: LETHAL RESPONSE', { colour: '#ff0000', opacity: 0.35, panel: true });
-    this.addWorldSign(5400, 660, 'SPIRE ACCESS POINT', 'IDENTITY VERIFICATION REQUIRED', { colour: '#ff6a00', opacity: 0.3, panel: true });
-    this.addWorldSign(5900, 680, '// ONE TIER AT A TIME //', null, { colour: '#00ff88', opacity: 0.18 });
-    this.addWorldSign(6100, 700, 'EXIT — TRANSIT NETWORK', 'TIER 3 — ABOVE', { colour: '#00ff88', opacity: 0.4, panel: true });
+    // Zone 5 — Alien spire (x: 4800–6400)
+    this.addWorldSign(4900, 680, 'INNER SANCTUM APPROACH — TIER 7+',    'UNAUTHORISED ACCESS: LETHAL RESPONSE',    { colour: '#ff0000', opacity: 0.38, panel: true });
+    this.addWorldSign(5200, 700, 'SPIRE ACCESS POINT — IDENTITY CHECK',  'YOUR TIER HAS BEEN REVOKED',             { colour: '#ff6a00', opacity: 0.32, panel: true });
+    this.addWorldSign(5600, 660, '// ONE TIER AT A TIME //',             null,                                      { colour: '#00ff88', opacity: 0.16 });
+    this.addWorldSign(5900, 700, 'FINAL WARNING — TURN BACK',            'THE SOURCE IS NOT FOR YOU',              { colour: '#ff0000', opacity: 0.35, panel: true });
+    this.addWorldSign(6150, 680, 'EXIT — TRANSIT NETWORK ABOVE',         'TIER 3 DISTRICT — KEEP MOVING',          { colour: '#00ff88', opacity: 0.42, panel: true });
   }
 
   // Brief atmospheric title card (glassmorphism). Does not block input; fades
@@ -757,6 +765,7 @@ export default class Game extends Phaser.Scene {
   }
 
   onPlayerHit() {
+    if (AssistMode.get('invincibility')) return;
     this.player.die();
   }
 
@@ -1044,20 +1053,35 @@ export default class Game extends Phaser.Scene {
       if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
     }
 
-    // ESC toggles pause (not after the level is finished).
+    // ESC: from the assist submenu go back to main pause; otherwise toggle pause.
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
-      this.togglePause();
+      if (this.isPaused && this.pauseMode === 'assist') {
+        this._closeAssistOverlay();
+      } else {
+        this.togglePause();
+      }
     }
     if (this.isPaused) {
       this.updatePauseMenu();
       return; // freeze all game logic while paused
     }
 
+    // Assist mode: smooth physics timeScale toward target (0.75 or 1.0).
+    const targetScale = AssistMode.get('slowerGameSpeed') ? ASSIST_MODE.GAME_SPEED_MULTIPLIER : 1.0;
+    if (Math.abs(this.physics.world.timeScale - targetScale) > 0.001) {
+      this.physics.world.timeScale = Phaser.Math.Linear(this.physics.world.timeScale, targetScale, 0.05);
+    } else {
+      this.physics.world.timeScale = targetScale;
+    }
+
     this.background.update();
     this.player.update(time, delta);
-    for (const d of this.drones) if (d.active) d.update(time, delta);
-    for (const s of this.sentinels) if (s.active) s.update(time, delta);
-    for (const s of this.seekers) if (s.active) s.update(time, delta);
+
+    // Skip AI for enemies more than 1200px from the player (Level 1 world = 6400px).
+    const near = (e) => Phaser.Math.Distance.Between(e.x, e.y, this.player.x, this.player.y) < 1200;
+    for (const d of this.drones) if (d.active && near(d)) d.update(time, delta);
+    for (const s of this.sentinels) if (s.active && near(s)) s.update(time, delta);
+    for (const s of this.seekers) if (s.active && near(s)) s.update(time, delta);
     this.portal.update(time, delta);
     for (const ap of this.abilityPickups) ap.update(time, delta);
     this.cameraController.update(this.player, delta);
@@ -1144,7 +1168,8 @@ export default class Game extends Phaser.Scene {
     this.updatePlatformFlicker();
 
     // Fell into a pit / off the world bottom.
-    if (!this.player.isDead && !this.levelDone && this.player.y > DEATH_Y) {
+    if (!this.player.isDead && !this.levelDone && this.player.y > DEATH_Y
+        && !AssistMode.get('invincibility')) {
       this.player.die();
     }
 
@@ -1216,6 +1241,8 @@ export default class Game extends Phaser.Scene {
   pauseGame() {
     this.isPaused = true;
     this.pauseSelection = 0;
+    this.pauseMode = 'main';
+    this.assistSelection = 0;
     this.physics.pause();
     this.tweens.pauseAll();
     this.time.paused = true;
@@ -1224,6 +1251,7 @@ export default class Game extends Phaser.Scene {
 
   resumeGame() {
     this.isPaused = false;
+    this.pauseMode = 'main';
     this.physics.resume();
     this.tweens.resumeAll();
     this.time.paused = false;
@@ -1236,21 +1264,24 @@ export default class Game extends Phaser.Scene {
     const dim = this.add
       .rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0.75)
       .setScrollFactor(0).setDepth(300);
-    const panel = makeGlassPanel(this, cx, cy, 280, 190).setScrollFactor(0).setDepth(301);
+    const panel = makeGlassPanel(this, cx, cy, 280, 215).setScrollFactor(0).setDepth(301);
     const title = this.add
-      .text(cx, cy - 54, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00ff88' })
+      .text(cx, cy - 64, 'PAUSED', { fontFamily: 'monospace', fontSize: '24px', color: '#00ff88' })
       .setOrigin(0.5).setScrollFactor(0).setDepth(302);
-    const sep = this.add.rectangle(cx, cy - 28, 200, 1, 0x00ff88, 0.6).setScrollFactor(0).setDepth(302);
+    const sep = this.add.rectangle(cx, cy - 40, 200, 1, 0x00ff88, 0.6).setScrollFactor(0).setDepth(302);
     this.resumeText = this.add
-      .text(cx - 60, cy - 2, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .text(cx - 60, cy - 14, 'RESUME', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
     this.restartText = this.add
-      .text(cx - 60, cy + 26, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .text(cx - 60, cy + 14, 'RESTART', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
+    this.assistText = this.add
+      .text(cx - 60, cy + 42, 'ASSIST', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
     this.mainMenuText = this.add
-      .text(cx - 60, cy + 54, 'MAIN MENU', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+      .text(cx - 60, cy + 70, 'MAIN MENU', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
       .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302);
-    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText, this.mainMenuText];
+    this.pauseUI = [dim, panel, title, sep, this.resumeText, this.restartText, this.assistText, this.mainMenuText];
     this.refreshPauseSelection();
   }
 
@@ -1263,17 +1294,21 @@ export default class Game extends Phaser.Scene {
     if (!this.resumeText) return;
     this.resumeText.setText(`${this.pauseSelection === 0 ? '> ' : '  '}RESUME`).setAlpha(this.pauseSelection === 0 ? 1 : 0.6);
     this.restartText.setText(`${this.pauseSelection === 1 ? '> ' : '  '}RESTART`).setAlpha(this.pauseSelection === 1 ? 1 : 0.6);
-    this.mainMenuText.setText(`${this.pauseSelection === 2 ? '> ' : '  '}MAIN MENU`).setAlpha(this.pauseSelection === 2 ? 1 : 0.6);
+    this.assistText.setText(`${this.pauseSelection === 2 ? '> ' : '  '}ASSIST`).setAlpha(this.pauseSelection === 2 ? 1 : 0.6);
+    this.mainMenuText.setText(`${this.pauseSelection === 3 ? '> ' : '  '}MAIN MENU`).setAlpha(this.pauseSelection === 3 ? 1 : 0.6);
   }
 
   updatePauseMenu() {
+    // Dispatch to assist submenu when it is open.
+    if (this.pauseMode === 'assist') { this.updateAssistMenu(); return; }
+
     const k = this.pauseKeys;
     if (Phaser.Input.Keyboard.JustDown(k.up) || Phaser.Input.Keyboard.JustDown(k.w)) {
       this.pauseSelection = Math.max(0, this.pauseSelection - 1);
       this.refreshPauseSelection();
     }
     if (Phaser.Input.Keyboard.JustDown(k.down) || Phaser.Input.Keyboard.JustDown(k.s)) {
-      this.pauseSelection = Math.min(2, this.pauseSelection + 1);
+      this.pauseSelection = Math.min(3, this.pauseSelection + 1);
       this.refreshPauseSelection();
     }
     if (Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.enter)) {
@@ -1286,6 +1321,9 @@ export default class Game extends Phaser.Scene {
         this.time.paused = false;
         this.isPaused = false;
         this.scene.restart();
+      } else if (this.pauseSelection === 2) {
+        // ASSIST: open the assist submenu (keeps the game paused).
+        this._openAssistOverlay();
       } else {
         // MAIN MENU: resume scene state, fade out, hand back to the menu.
         this.physics.resume();
@@ -1299,6 +1337,111 @@ export default class Game extends Phaser.Scene {
           this.scene.start('MainMenu');
           this.scene.stop(this.scene.key); // 'Game' or 'Level2'
         });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Assist overlay — builds the submenu, handles its input, rebuilds on exit.
+  // ---------------------------------------------------------------------------
+  _openAssistOverlay() {
+    this.pauseMode = 'assist';
+    this.assistSelection = 0;
+    this.destroyPauseOverlay();
+    this.buildAssistOverlay();
+  }
+
+  _closeAssistOverlay() {
+    this.pauseMode = 'main';
+    this.destroyPauseOverlay();
+    this.buildPauseOverlay();
+  }
+
+  buildAssistOverlay() {
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+
+    const dim = this.add
+      .rectangle(cx, cy, this.scale.width, this.scale.height, 0x050a08, 0.75)
+      .setScrollFactor(0).setDepth(300);
+    const panel = makeGlassPanel(this, cx, cy, 280, 220).setScrollFactor(0).setDepth(301);
+    const header = this.add
+      .text(cx, cy - 88, 'ASSIST MODE', { fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00' })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(302).setAlpha(0.6);
+    const divider = this.add.rectangle(cx, cy - 75, 240, 1, 0xff6a00, 0.2)
+      .setScrollFactor(0).setDepth(302);
+
+    const OPTIONS = [
+      { key: 'reducedEnemySpeed', name: 'REDUCED ENEMY SPEED', desc: 'Enemies move at 60% normal speed' },
+      { key: 'slowerGameSpeed',   name: 'SLOWER GAME SPEED',   desc: 'Game runs at 75% speed'           },
+      { key: 'invincibility',     name: 'INVINCIBILITY',       desc: 'Player cannot die'                },
+    ];
+    const ROW_Y = [cy - 56, cy - 12, cy + 32];
+
+    this.assistRows = OPTIONS.map((opt, i) => {
+      const y = ROW_Y[i];
+      const on = AssistMode.get(opt.key);
+      const arrow = this.add.text(cx - 108, y, '▶', { fontFamily: 'monospace', fontSize: '14px', color: '#ff6a00' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0);
+      const checkbox = this.add.text(cx - 94, y, on ? '[✓]' : '[ ]', { fontFamily: 'monospace', fontSize: '12px', color: on ? '#ff6a00' : '#00ff88' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(on ? 0.9 : 0.4);
+      const name = this.add.text(cx - 68, y, opt.name, { fontFamily: 'monospace', fontSize: '13px', color: '#00ff88' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0.5);
+      const desc = this.add.text(cx - 68, y + 15, opt.desc, { fontFamily: 'monospace', fontSize: '9px', color: '#00ff88' })
+        .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0.3);
+      return { arrow, checkbox, name, desc, key: opt.key };
+    });
+
+    const backArrow = this.add.text(cx - 42, cy + 78, '▶', { fontFamily: 'monospace', fontSize: '10px', color: '#ff6a00' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0);
+    const backText = this.add.text(cx - 24, cy + 78, 'BACK', { fontFamily: 'monospace', fontSize: '10px', color: '#00ff88' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(302).setAlpha(0.4);
+    this.assistBackRow = { arrow: backArrow, text: backText };
+
+    this.pauseUI = [
+      dim, panel, header, divider,
+      ...this.assistRows.flatMap((r) => [r.arrow, r.checkbox, r.name, r.desc]),
+      backArrow, backText,
+    ];
+    this.refreshAssistSelection();
+  }
+
+  refreshAssistSelection() {
+    if (!this.assistRows) return;
+    this.assistRows.forEach((row, i) => {
+      const sel = i === this.assistSelection;
+      const on = AssistMode.get(row.key);
+      row.arrow.setAlpha(sel ? 1 : 0);
+      row.name.setAlpha(sel ? 1 : 0.5);
+      row.desc.setAlpha(sel ? 0.55 : 0.3);
+      row.checkbox.setText(on ? '[✓]' : '[ ]');
+      row.checkbox.setColor(on ? '#ff6a00' : '#00ff88');
+      row.checkbox.setAlpha(on ? 0.9 : (sel ? 0.7 : 0.4));
+    });
+    if (this.assistBackRow) {
+      const backSel = this.assistSelection === 3;
+      this.assistBackRow.arrow.setAlpha(backSel ? 1 : 0);
+      this.assistBackRow.text.setAlpha(backSel ? 1 : 0.4);
+    }
+  }
+
+  updateAssistMenu() {
+    const k = this.pauseKeys;
+    if (Phaser.Input.Keyboard.JustDown(k.up) || Phaser.Input.Keyboard.JustDown(k.w)) {
+      this.assistSelection = Math.max(0, this.assistSelection - 1);
+      this.refreshAssistSelection();
+    }
+    if (Phaser.Input.Keyboard.JustDown(k.down) || Phaser.Input.Keyboard.JustDown(k.s)) {
+      this.assistSelection = Math.min(3, this.assistSelection + 1);
+      this.refreshAssistSelection();
+    }
+    if (Phaser.Input.Keyboard.JustDown(k.space) || Phaser.Input.Keyboard.JustDown(k.enter)) {
+      if (this.assistSelection === 3) {
+        this._closeAssistOverlay();
+      } else {
+        const keys = ['reducedEnemySpeed', 'slowerGameSpeed', 'invincibility'];
+        AssistMode.toggle(keys[this.assistSelection]);
+        this.refreshAssistSelection();
       }
     }
   }

@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 import { ENEMY, COLORS } from '../constants.js';
+import AssistMode from '../utils/AssistMode.js'; // eslint-disable-line no-unused-vars
+// HoverSentinel is stationary (sine-wave bob only) — no movement speed to scale.
+// AssistMode imported so reducedEnemySpeed can be applied here if behaviour changes.
 
 // =============================================================================
 // HoverSentinel

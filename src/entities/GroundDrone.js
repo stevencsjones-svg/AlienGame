@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { ENEMY, COLORS } from '../constants.js';
+import { ENEMY, COLORS, ASSIST_MODE } from '../constants.js';
+import AssistMode from '../utils/AssistMode.js';
 
 // =============================================================================
 // GroundDrone
@@ -26,7 +27,8 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
 
     this.direction = 1; // 1 = right, -1 = left
     this.prevDirection = 1;
-    this.body.setVelocityX(ENEMY.DRONE_SPEED * this.direction);
+    this.baseSpeed = ENEMY.DRONE_SPEED; // unmodified; multiplier applied per frame
+    this.body.setVelocityX(this.baseSpeed * this.direction);
 
     this.footPhase = 0;
     this.swayTime = 0;
@@ -66,18 +68,19 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
       if (this.aggroTimer <= 0) { this.isAggro = false; this.flashEye(this.eyeBaseColor); }
     }
 
-    // ---- Behaviour (UNCHANGED) ----
-    // Only re-evaluate direction while grounded so we don't jitter mid-fall.
-    if (this.body.blocked.down) {
-      if (this.body.blocked.left) {
-        this.direction = 1;
-      } else if (this.body.blocked.right) {
-        this.direction = -1;
-      } else if (!this.isGroundAhead()) {
-        this.direction *= -1;
-      }
+    // ---- Behaviour ----
+    // Re-evaluate direction when grounded. Use body.blocked.down OR a direct
+    // overlapRect probe so the check survives even if the collider callback
+    // doesn't fire on a given frame (thin-platform edge case on Level 2).
+    if (this.body.blocked.left) {
+      this.direction = 1;
+    } else if (this.body.blocked.right) {
+      this.direction = -1;
+    } else if ((this.body.blocked.down || this._isGrounded()) && !this._isGroundAhead()) {
+      this.direction *= -1;
     }
-    this.body.setVelocityX(ENEMY.DRONE_SPEED * this.direction * (this.isAggro ? 1.2 : 1));
+    const speedMult = AssistMode.get('reducedEnemySpeed') ? ASSIST_MODE.ENEMY_SPEED_MULTIPLIER : 1.0;
+    this.body.setVelocityX(this.baseSpeed * this.direction * (this.isAggro ? 1.2 : 1) * speedMult);
 
     // ---- Turn flash + "REROUTING" data readout on direction flip ----
     if (this.direction !== this.prevDirection) {
@@ -136,25 +139,29 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
     });
   }
 
-  // Sample a point just past the front foot and check whether any platform
-  // body sits underneath it.
-  isGroundAhead() {
-    const aheadX = this.x + this.direction * (W / 2 + 4);
-    const footY = this.body.y + this.body.height + 4;
+  // Is the drone currently standing on a static body?
+  // Uses Phaser's live RTree rather than stale body.x/y reads, which fail
+  // intermittently for thin platforms (Level 2's 20px floors).
+  // NOTE: overlapRect(x,y,w,h, includeDynamic, includeStatic) — static is the SECOND flag.
+  _isGrounded() {
+    const bodies = this.scene.physics.overlapRect(
+      this.body.x, this.body.y + this.body.height, this.body.width, 4,
+      false, // includeDynamic = false (ignore drones/player)
+      true,  // includeStatic  = true  (find floor/platform bodies)
+    );
+    return bodies.length > 0;
+  }
 
-    const platforms = this.scene.platforms;
-    for (let i = 0; i < platforms.length; i++) {
-      const b = platforms[i].body;
-      if (
-        aheadX >= b.x &&
-        aheadX <= b.x + b.width &&
-        footY >= b.y &&
-        footY <= b.y + b.height
-      ) {
-        return true;
-      }
-    }
-    return false;
+  // Is there a static body on the floor just ahead of the drone's leading foot?
+  _isGroundAhead() {
+    const checkX = this.x + (this.direction > 0 ? W / 2 + 6 : -(W / 2 + 6));
+    const checkY = this.y + H / 2 + 10;
+    const bodies = this.scene.physics.overlapRect(
+      checkX - 4, checkY, 8, 14,
+      false, // includeDynamic = false
+      true,  // includeStatic  = true
+    );
+    return bodies.length > 0;
   }
 
   // Killed by the player's attack: white flash, particle burst, shake, destroy.
