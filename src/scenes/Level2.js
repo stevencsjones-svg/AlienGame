@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import {
   LEVEL2, LEVEL2_PARALLAX, LEVEL2_WORLD, ENEMY, ABILITY_PANEL_HOLD_MS, DEV_MODE,
   LEVEL_COMPLETE_BEATS, LEVEL2_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COUNT,
-  HIDDEN_COLLECTIBLE_COLOR, ASSIST_MODE,
+  HIDDEN_COLLECTIBLE_COLOR, ASSIST_MODE, MUSIC_VOLUME,
 } from '../constants.js';
 import AssistMode from '../utils/AssistMode.js';
 import Player from '../entities/Player.js';
@@ -22,6 +22,7 @@ import { buildPlatformVisual } from '../entities/platformVisual.js';
 import { createCollectible, spawnPickupShards } from '../entities/collectible.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
+import level2MusicUrl from '../audio/level2_music.ogg';
 
 const P = LEVEL2;
 const W = LEVEL2_WORLD.WIDTH;
@@ -133,6 +134,13 @@ const CAM_LERP = {
 export default class Level2 extends Phaser.Scene {
   constructor() {
     super('Level2');
+  }
+
+  preload() {
+    // Background music (idempotent — the cache key is reused across restarts).
+    if (!this.cache.audio.exists('level2_music')) {
+      this.load.audio('level2_music', level2MusicUrl);
+    }
   }
 
   create() {
@@ -310,6 +318,15 @@ export default class Level2 extends Phaser.Scene {
     this.diegeticHUD = new DiegeticHUD(this, this.player);
     if (!this.scene.isActive('UI')) this.scene.launch('UI');
 
+    // ---- Background music (loops; muted in lockstep with SFX via the M key) ----
+    this.bgMusic = this.sound.add('level2_music', { loop: true, volume: MUSIC_VOLUME });
+    this.bgMusic.setMute(!SFX.enabled); // honour the existing audio toggle
+    this.bgMusic.play();
+    // Safety net: stop the music on any scene shutdown so it can't bleed across.
+    this.events.once('shutdown', () => {
+      if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
+    });
+
     // ---- Camera ----
     this.cameras.main.startFollow(this.player, true, CAM_LERP.horizontal[0], CAM_LERP.horizontal[1]);
     // Events-only CameraController: Level 2 drives the main camera itself (lerp,
@@ -458,6 +475,7 @@ export default class Level2 extends Phaser.Scene {
         this.time.paused = false;
         this.isPaused = false;
         if (this.portalOsc) this.portalOsc.stop();
+        if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
         this.cameras.main.fadeOut(400, 0, 0, 0);
         this.cameras.main.once('camerafadeoutcomplete', () => {
           this.scene.stop('UI');
@@ -1115,6 +1133,7 @@ export default class Level2 extends Phaser.Scene {
           .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
         this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
         this.input.keyboard.once('keydown-SPACE', () => {
+          if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
           this.cameras.main.fadeOut(500, 0, 0, 0);
           this.cameras.main.once('camerafadeoutcomplete', () => {
             this.scene.stop('UI');
@@ -1129,7 +1148,10 @@ export default class Level2 extends Phaser.Scene {
   // --- Main loop ------------------------------------------------------------
   update(time, delta) {
     // M toggles all SFX.
-    if (Phaser.Input.Keyboard.JustDown(this.mKey)) SFX.toggleMute();
+    if (Phaser.Input.Keyboard.JustDown(this.mKey)) {
+      SFX.toggleMute();
+      if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
+    }
 
     // ESC toggles pause (not after the level is finished).
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
