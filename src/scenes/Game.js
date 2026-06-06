@@ -24,6 +24,7 @@ import AbilityPickup from '../entities/AbilityPickup.js';
 // in both the dev server and production builds — a literal 'src/audio/...'
 // path 404s in the built dist/.
 import level1MusicUrl from '../audio/level1_music.ogg';
+import Progression from '../utils/Progression.js';
 
 // Title card shows once per session (survives respawns and scene restarts).
 let level1TitleShown = false;
@@ -1072,6 +1073,7 @@ export default class Game extends Phaser.Scene {
   onLevelComplete() {
     if (this.levelDone) return;
     this.levelDone = true;
+    Progression.complete(1); // unlock Level 2 in the menu
     // Cinematic: slow zoom out over the conquered level (stays out for the overlay).
     this.cameraController.cinematicEvent('portalReached', this);
     // AUDIO: level complete — FL Studio

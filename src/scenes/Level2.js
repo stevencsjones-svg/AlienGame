@@ -23,6 +23,7 @@ import { createCollectible, spawnPickupShards } from '../entities/collectible.js
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
 import level2MusicUrl from '../audio/level2_music.ogg';
+import Progression from '../utils/Progression.js';
 
 const P = LEVEL2;
 const W = LEVEL2_WORLD.WIDTH;
@@ -144,6 +145,13 @@ export default class Level2 extends Phaser.Scene {
   }
 
   create() {
+    // Hard gate: Level 2 is only reachable once Level 1 is complete (bypassed in
+    // DEV_MODE). Catches direct-start / URL bypasses; the menu is the main gate.
+    if (!Progression.hasCompleted(1) && !DEV_MODE) {
+      this.scene.start('MainMenu');
+      return;
+    }
+
     this.cameras.main.fadeIn(600, 0, 0, 0);
     this.physics.world.setBounds(0, 0, W, H);
     this.cameras.main.setBounds(0, 0, W, H);
@@ -1085,6 +1093,7 @@ export default class Level2 extends Phaser.Scene {
   onLevelComplete() {
     if (this.levelDone) return;
     this.levelDone = true;
+    Progression.complete(2);
     // Cinematic: slow zoom out over the conquered level (stays out for the overlay).
     this.cameraController.cinematicEvent('portalReached', this);
     // AUDIO: level complete — FL Studio

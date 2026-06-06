@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
+import { DEV_MODE } from '../constants.js';
 import ParallaxBackground from '../background/ParallaxBackground.js';
 import SFX from '../audio/SFX.js';
+import Progression from '../utils/Progression.js';
 
 // =============================================================================
 // MainMenu
@@ -74,6 +76,14 @@ export default class MainMenu extends Phaser.Scene {
       .on('pointerover', () => { this.selectedIndex = i; this.updateSelection(); })
       .on('pointerdown', () => { this.selectedIndex = i; this.startGame(); }));
 
+    // ---- Progression gating of the Level 2 option ----
+    this.level2Unlocked = Progression.hasCompleted(1) || DEV_MODE;
+    this.level2Complete = Progression.hasCompleted(2);
+    // Lock / completion indicator drawn after the Level 2 row (own colour/size).
+    this.level2Indicator = this.add
+      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '9px', color: '#ff6a00' })
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
+
     // ---- Controls hint (blinks) ----
     const hint = this.add
       .text(cx, cy + 190, '↑ ↓  SELECT       SPACE / ENTER  START', {
@@ -84,7 +94,7 @@ export default class MainMenu extends Phaser.Scene {
       targets: hint, alpha: { from: 0.3, to: 1 }, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
     });
 
-    this.updateSelection();
+    this.updateLevelSelectDisplay();
 
     // ---- Version (bottom-right) ----
     this.add
@@ -109,6 +119,18 @@ export default class MainMenu extends Phaser.Scene {
     kb.on('keydown-S', () => this.moveSelection(1));
     kb.on('keydown-SPACE', () => this.startGame());
     kb.on('keydown-ENTER', () => this.startGame());
+
+    // Re-check progression whenever the menu is re-entered (e.g. a player who
+    // just completed Level 1 should see it unlocked immediately). create() runs
+    // on every scene.start; this 'wake' handler covers a sleep/wake path too.
+    if (!this._wakeBound) {
+      this._wakeBound = true;
+      this.events.on('wake', () => {
+        this.level2Unlocked = Progression.hasCompleted(1) || DEV_MODE;
+        this.level2Complete = Progression.hasCompleted(2);
+        this.updateLevelSelectDisplay();
+      });
+    }
   }
 
   // Move the highlight between levels (wraps around).
@@ -119,23 +141,73 @@ export default class MainMenu extends Phaser.Scene {
     // AUDIO: menu move
   }
 
-  // Highlight the active level, dim the rest.
+  // Highlight the active level, dim the rest. Locked Level 2 stays dimmed green
+  // (#00ff88 @ 20%) regardless of selection, per the lock styling.
   updateSelection() {
     this.levelTexts.forEach((t, i) => {
       const sel = i === this.selectedIndex;
       t.setText(`${sel ? '▶  ' : '    '}${this.levels[i].label}${sel ? '  ◀' : '   '}`);
-      t.setColor(sel ? '#ff6a00' : '#00ff88');
-      t.setAlpha(sel ? 1 : 0.4);
+      const locked = i === 1 && !this.level2Unlocked;
+      if (locked) {
+        t.setColor('#00ff88').setAlpha(0.2);
+      } else {
+        t.setColor(sel ? '#ff6a00' : '#00ff88').setAlpha(sel ? 1 : 0.4);
+      }
       t.setScale(sel ? 1.08 : 1);
+    });
+    // Keep the Level 2 indicator pinned just right of its (re-scaled) row.
+    if (this.level2Indicator && this.level2Indicator.visible) {
+      const lvl2 = this.levelTexts[1];
+      this.level2Indicator.setPosition(lvl2.x + lvl2.displayWidth / 2 + 6, lvl2.y);
+    }
+  }
+
+  // Set the Level 2 lock/completion indicator from progression, then refresh
+  // the selection visuals (which also repositions the indicator).
+  updateLevelSelectDisplay() {
+    if (!this.level2Indicator) return;
+    if (!this.level2Unlocked) {
+      this.level2Indicator.setText('[LOCKED]').setColor('#ff6a00').setFontSize(9).setAlpha(0.5).setVisible(true);
+    } else if (this.level2Complete) {
+      this.level2Indicator.setText('✓').setColor('#00ff88').setFontSize(12).setAlpha(0.9).setVisible(true);
+    } else {
+      this.level2Indicator.setVisible(false);
+    }
+    this.updateSelection();
+  }
+
+  // Brief "locked" hint shown when the player tries to start a locked level.
+  showLockedMessage() {
+    if (this.lockMsg) return; // one at a time
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    this.lockMsg = this.add
+      .text(cx, cy + 168, 'COMPLETE LEVEL 1 TO UNLOCK', {
+        fontFamily: 'monospace', fontSize: '10px', color: '#ff6a00',
+      })
+      .setOrigin(0.5).setScrollFactor(0).setDepth(12).setAlpha(0);
+    this.tweens.add({
+      targets: this.lockMsg, alpha: 1, duration: 200,
+      onComplete: () => this.time.delayedCall(1500, () => {
+        this.tweens.add({
+          targets: this.lockMsg, alpha: 0, duration: 200,
+          onComplete: () => { if (this.lockMsg) { this.lockMsg.destroy(); this.lockMsg = null; } },
+        });
+      }),
     });
   }
 
   startGame() {
     if (this.starting) return;
+    const target = this.levels[this.selectedIndex].scene;
+    // Gate: selecting a locked Level 2 shows a hint instead of starting.
+    if (target === 'Level2' && !this.level2Unlocked) {
+      this.showLockedMessage();
+      return;
+    }
     this.starting = true;
     // Initialise audio on this user gesture (satisfies browser autoplay policy).
     SFX.init();
-    const target = this.levels[this.selectedIndex].scene;
     // Fade to black, then start the chosen level.
     this.fadeRect.setAlpha(0).setDepth(60);
     this.tweens.add({
