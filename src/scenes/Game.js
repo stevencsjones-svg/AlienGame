@@ -40,7 +40,10 @@ const GROUND = [
   [600, 820, 1200, 80],   // Zone 1 ground
   [1800, 820, 1200, 80],  // Zone 2 ground (contiguous with zone 1)
   [4200, 400, 1200, 500], // Zone 4 rooftop floor
-  [5600, 400, 1600, 500], // Zone 5 rooftop floor (contiguous with zone 4)
+  // Zone 5 rooftop floor, split by a death-pit gap at x:5600-5860 (FIX 13).
+  // Left piece ends at x:5600 (launch lip); right piece starts at x:5860 (landing).
+  [5200, 400, 800, 500],  // Zone 5 rooftop — left of the gap (x:4800-5600)
+  [6130, 400, 540, 500],  // Zone 5 rooftop — right of the gap (x:5860-6400)
 ];
 
 // [centreX, topY, width]
@@ -181,11 +184,12 @@ export default class Game extends Phaser.Scene {
       return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
     };
 
-    // ---- Post-FX (WebGL only). Order: Bloom -> Chromatic -> CRT (last) ----
+    // ---- Post-FX (WebGL only). Order: Bloom -> Chromatic -> CRT -> Grade ----
     if (this.renderer && this.renderer.type === Phaser.WEBGL) {
       this.cameras.main.setPostPipeline('BloomPipeline');
       this.cameras.main.setPostPipeline(ChromaticAberrationPipeline);
       this.cameras.main.setPostPipeline('CRTPipeline');
+      this.cameras.main.setPostPipeline('ColorGradePipeline'); // final grade
 
       // Keep the post-FX resolution in sync when the window resizes. (Both
       // pipelines also read renderer.width/height each frame in onPreRender,
@@ -220,18 +224,24 @@ export default class Game extends Phaser.Scene {
 
     this.createPitVisual();
     this.createLevelGeometry();
+    this.createRooftopVisuals(); // FIX 3 — Zone 4 rooftop atmosphere
     this.createCollectibles();
     this.createSecrets();
+    this.createSecretHints(); // FIX 4 — faint orange motes near each secret
     this.createWorldSigns(); // environmental storytelling (visual only)
 
     // ---- Player ----
     this.player = new Player(this, PLAYER.SPAWN_X, PLAYER.SPAWN_Y);
+    // NOTE: RimLightPipeline is intentionally NOT applied to the player. On the
+    // sprite it rimmed the rectangular frame bounds, producing a visible box
+    // artefact around the character. The pipeline file is kept for future use.
 
     this.createEnemies();
     this.createPortal();
     this.createCheckpoint();
     this.createAbilityPickups();
     this.createColliders();
+    this.createSpikePits(); // FIX 7/13 — needs this.player + colliders to exist
 
     // DEV_MODE: start with everything unlocked so iteration isn't gated.
     if (DEV_MODE) {
@@ -419,6 +429,127 @@ export default class Game extends Phaser.Scene {
     this.add
       .rectangle(WORLD.WIDTH / 2, 820, WORLD.WIDTH, 2, COLORS.ENEMY, 0.3)
       .setDepth(-7);
+  }
+
+  // ---- FIX 3: Zone 4 rooftop atmosphere (the actual rooftop section) ---------
+  // "Looking down over the city": soft glows + lit windows on the building face
+  // below the rooftop lip (y400), a rooftop edge line, and a faint label.
+  createRooftopVisuals() {
+    // City glow — soft strips on the building face just below the rooftop edge.
+    const cityGlow = [
+      [3680, 520, 80, 6], [3850, 540, 40, 4], [4000, 510, 60, 5],
+      [4180, 540, 50, 4], [4350, 515, 70, 6], [4520, 535, 45, 4], [4700, 520, 55, 5],
+    ];
+    cityGlow.forEach(([gx, gy, gw, gh]) => {
+      const glow = this.add.rectangle(gx, gy, gw, gh, 0x00ff88, 0.12).setDepth(1);
+      this.tweens.add({
+        targets: glow,
+        alpha: { from: 0.06, to: 0.18 },
+        duration: Phaser.Math.Between(1800, 3200),
+        yoyo: true, repeat: -1,
+        delay: Phaser.Math.Between(0, 1000),
+      });
+    });
+
+    // Window grid — lit windows on the building face (occasional flicker).
+    const windows = [
+      [3700, 470, 0x00ff88, 4], [3710, 470, 0x00ff88, 4], [3700, 482, 0x00e5ff, 4], [3710, 482, 0x003300, 4],
+      [3900, 460, 0x00ff88, 3], [3910, 460, 0x00ff88, 3], [3900, 470, 0x003300, 3], [3910, 470, 0x00e5ff, 3],
+      [4120, 472, 0x00e5ff, 4], [4132, 472, 0x00ff88, 4], [4120, 484, 0x00ff88, 4], [4132, 484, 0x003300, 4],
+      [4340, 462, 0x00ff88, 3], [4352, 462, 0x00e5ff, 3], [4340, 472, 0x003300, 3], [4352, 472, 0x00ff88, 3],
+      [4560, 474, 0x00e5ff, 4], [4570, 474, 0x00ff88, 4], [4560, 486, 0x00ff88, 4], [4570, 486, 0x003300, 4],
+      [4720, 466, 0x00ff88, 3], [4732, 466, 0x003300, 3], [4720, 476, 0x00e5ff, 3], [4732, 476, 0x00ff88, 3],
+    ];
+    windows.forEach(([wx, wy, col, size]) => {
+      const win = this.add.rectangle(wx, wy, size, size, col, 0.45).setDepth(1);
+      if (Math.random() < 0.3) {
+        this.time.addEvent({
+          delay: Phaser.Math.Between(3000, 12000), loop: true,
+          callback: () => this.tweens.add({
+            targets: win, alpha: 0, duration: 80, yoyo: true,
+            onComplete: () => win.setAlpha(0.45),
+          }),
+        });
+      }
+    });
+
+    // Rooftop edge indicator — faint line along the rooftop lip.
+    this.add.rectangle(4200, 401, 1200, 2, 0x00ff88, 0.18).setDepth(3);
+    // Faint rooftop label.
+    this.add.text(3650, 380, 'ROOFTOP — TIER 2 ACCESS POINT', {
+      fontFamily: 'Courier New', fontSize: '7px', color: '#00ff88',
+    }).setAlpha(0.2).setDepth(3);
+  }
+
+  // ---- FIX 4: faint "something is up there" hint near each secret ------------
+  // Two orange motes per secret drift slowly upward (~8px/s) at 8% opacity.
+  createSecretHints() {
+    const secrets = [[2150, 290], [3140, 200], [4200, 130]];
+    secrets.forEach(([sx, sy]) => {
+      for (let i = 0; i < 2; i++) {
+        const p = this.add.rectangle(sx, sy + 60, 2, 2, HIDDEN_COLLECTIBLE_COLOR, 0.08).setDepth(1);
+        const drift = () => {
+          if (!p.scene) return; // scene torn down
+          p.setPosition(sx + Phaser.Math.Between(-6, 6), sy + 60).setAlpha(0.08);
+          this.tweens.add({
+            targets: p, y: sy, alpha: 0, duration: 7500, ease: 'Sine.easeIn',
+            delay: i * 3000, onComplete: drift,
+          });
+        };
+        drift();
+      }
+    });
+  }
+
+  // ---- FIX 7/13: spiked death pits -------------------------------------------
+  // Dark pit floor + a row of purple spikes. Unless opts.deathZone === false,
+  // adds an overlap zone (inset from the edges + sat just below the surface line
+  // so standing on an adjacent lip never triggers it, and taller than the spike
+  // tips so a fast fall can't tunnel through) that kills on contact. The global
+  // DEATH_Y net is kept as a backstop.
+  addSpikePit(x, y, width, opts = {}) {
+    this.add.rectangle(x + width / 2, y + 20, width, 40, 0x000000, 0.95).setDepth(2);
+
+    const spikeCount = Math.floor(width / 14);
+    const g = this.add.graphics().setDepth(3);
+    for (let i = 0; i < spikeCount; i++) {
+      const sx = x + i * 14 + 7;
+      g.fillStyle(0xbf00ff, 0.9);
+      g.fillTriangle(sx - 5, y + 12, sx + 5, y + 12, sx, y);
+      g.fillStyle(0xffffff, 0.3);
+      g.fillTriangle(sx - 2, y + 10, sx + 2, y + 10, sx, y + 2);
+    }
+
+    if (opts.deathZone === false) return null;
+    const zone = this.add
+      .rectangle(x + width / 2, y + 22, Math.max(2, width - 20), 28, 0x000000, 0)
+      .setDepth(3);
+    this.physics.add.existing(zone, true);
+    this.physics.add.overlap(this.player, zone, () => {
+      if (this.player.isDead || this.levelDone) return;
+      if (AssistMode.get('invincibility')) return;
+      this.player.die();
+    });
+    return zone;
+  }
+
+  // Place the level's spiked pits (after the player + colliders exist).
+  createSpikePits() {
+    // Zone 3 climb pit — the real Level 1 death pit, below the vertical climb.
+    this.addSpikePit(2400, 820, 1200);
+    // Zone 5 rooftop gap (FIX 13) — at the real rooftop elevation (y400).
+    this.addSpikePit(5600, 400, 260);
+    this.add.text(5730, 360, '▼ STRUCTURAL FAILURE', {
+      fontFamily: 'Courier New', fontSize: '7px', color: '#ff0000',
+    }).setDepth(3).setOrigin(0.5).setAlpha(0.4);
+  }
+
+  // Brief full-screen colour flash (used by the level-complete reward states).
+  _completeFlash(color) {
+    const f = this.add
+      .rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, color, 0.18)
+      .setScrollFactor(0).setDepth(206);
+    this.tweens.add({ targets: f, alpha: 0, duration: 150, onComplete: () => f.destroy() });
   }
 
   // ---- Platforms & ground -----------------------------------------------------
@@ -647,7 +778,10 @@ export default class Game extends Phaser.Scene {
     ap.destroy();
     this.abilityPickups = this.abilityPickups.filter((a) => a !== ap);
     // AUDIO: ability unlock — FL Studio
-    if (newly) this.showAbilityPanel(ap.label, ap.description); // skip the panel if already unlocked (DEV_MODE)
+    if (newly) {
+      this.cameraController.cinematicEvent('abilityUnlock', this); // power-fantasy zoom punch
+      this.showAbilityPanel(ap.label, ap.description);
+    } // skip the panel + zoom if already unlocked (DEV_MODE)
   }
 
   showAbilityPanel(name, desc) {
@@ -767,6 +901,22 @@ export default class Game extends Phaser.Scene {
   onPlayerHit() {
     if (AssistMode.get('invincibility')) return;
     this.player.die();
+  }
+
+  // Push the player-light position (in UV/screen space) and the sprite's
+  // on-screen size into the rim-light pipeline each frame. No-ops on Canvas /
+  // if the pipeline isn't attached.
+  updateRimLight() {
+    const spr = this.player && this.player.visuals && this.player.visuals.sprite;
+    if (!spr || !spr.getPostPipeline) return;
+    let rim = spr.getPostPipeline('RimLightPipeline');
+    if (Array.isArray(rim)) rim = rim[0];
+    if (!rim || !this.playerLight) return;
+    rim.uLightPos = [
+      (this.playerLight.x - this.cameras.main.scrollX) / this.scale.width,
+      (this.playerLight.y - this.cameras.main.scrollY) / this.scale.height,
+    ];
+    rim.uResolution = [Math.max(1, spr.displayWidth), Math.max(1, spr.displayHeight)];
   }
 
   onCollect(player, c) {
@@ -922,6 +1072,8 @@ export default class Game extends Phaser.Scene {
   onLevelComplete() {
     if (this.levelDone) return;
     this.levelDone = true;
+    // Cinematic: slow zoom out over the conquered level (stays out for the overlay).
+    this.cameraController.cinematicEvent('portalReached', this);
     // AUDIO: level complete — FL Studio
     if (this.portalOsc) this.portalOsc.stop();
 
@@ -1002,6 +1154,41 @@ export default class Game extends Phaser.Scene {
       }
     }
 
+    // ---- FIX 4: collection reward states ----
+    const allData = this.collectedCount >= TOTAL_COLLECTIBLES;
+    const allSecrets = this.secretsFound >= HIDDEN_COLLECTIBLE_COUNT;
+    let rewardY = cy + 172;
+    if (allData) {
+      const r = this.add.text(cx, rewardY, 'ALL DATA RECOVERED', {
+        fontFamily: 'monospace', fontSize: '10px', color: '#00e5ff',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(203);
+      entrance.push([r, rewardY]);
+      rewardY += 14;
+      this._completeFlash(0x00e5ff); // brief cyan flash
+    }
+    if (allSecrets) {
+      const r = this.add.text(cx, rewardY, 'ALL SECRETS FOUND — EXILE REMEMBERED', {
+        fontFamily: 'monospace', fontSize: '10px', color: '#ff6a00',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(203);
+      entrance.push([r, rewardY]);
+      rewardY += 14;
+      this._completeFlash(0xff6a00); // brief orange flash
+    }
+    if (allData && allSecrets) {
+      main.setColor('#ffffff'); // perfect run — title goes white
+      const pr = this.add.text(cx, cy - 46, 'PERFECT RUN', {
+        fontFamily: 'monospace', fontSize: '14px', color: '#ffffff',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(205).setAlpha(0).setScale(0.6);
+      this.tweens.add({
+        targets: pr, alpha: 1, scale: 1, duration: 400, ease: 'Back.easeOut',
+        onComplete: () => this.tweens.add({
+          targets: pr, alpha: 0, scale: 1.1, delay: 800, duration: 400, onComplete: () => pr.destroy(),
+        }),
+      });
+    }
+    // Continue prompt sits below the reward lines when any are shown.
+    this._completeContinueY = (allData || allSecrets) ? rewardY + 12 : cy + 190;
+
     // Entrance: slide in from y+20 with fade over 300ms.
     entrance.forEach(([obj, ty]) => {
       obj.y = ty + 20;
@@ -1031,7 +1218,7 @@ export default class Game extends Phaser.Scene {
     // Continue prompt (appears after 1.5s; Space hands off to Level 2).
     this.time.delayedCall(1500, () => {
       const cont = this.add
-        .text(cx, cy + 190, 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' })
+        .text(cx, this._completeContinueY || cy + 190, 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' })
         .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
       this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       this.input.keyboard.once('keydown-SPACE', () => {
@@ -1079,7 +1266,14 @@ export default class Game extends Phaser.Scene {
 
     // Skip AI for enemies more than 1200px from the player (Level 1 world = 6400px).
     const near = (e) => Phaser.Math.Distance.Between(e.x, e.y, this.player.x, this.player.y) < 1200;
-    for (const d of this.drones) if (d.active && near(d)) d.update(time, delta);
+    // Drones STEER when near, FREEZE when far. A culled drone must be halted:
+    // global physics keeps moving a body even when its patrol logic is skipped,
+    // so a far drone with any residual velocity walks off its platform and drifts
+    // away. Freezing guarantees a drone only ever moves while actively steering.
+    for (const d of this.drones) {
+      if (!d.active) continue;
+      if (near(d)) d.update(time, delta); else d.freeze();
+    }
     for (const s of this.sentinels) if (s.active && near(s)) s.update(time, delta);
     for (const s of this.seekers) if (s.active && near(s)) s.update(time, delta);
     this.portal.update(time, delta);

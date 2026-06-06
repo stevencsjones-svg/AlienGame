@@ -114,6 +114,8 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
   activate() {
     this.chasing = true;
     SFX.enemyAlert();
+    // Cinematic: brief pull-back toward the threat as it locks on.
+    if (this.scene.cameraController) this.scene.cameraController.cinematicEvent('seekerAlert', this.scene);
 
     // Juice: brief freeze + RGB split as it locks on.
     if (this.scene.hitPause) this.scene.hitPause(50);
@@ -156,6 +158,43 @@ export default class Seeker extends Phaser.GameObjects.Triangle {
   // Record which way the seeker is travelling (the container is flipped in update).
   faceToward(targetX) {
     this.facingSign = targetX < this.x ? -1 : 1;
+  }
+
+  // BUG 9: restore the exact spawn idle state. Called on player respawn so a
+  // seeker that was mid-chase when the player died — and may have been culled
+  // (>2400px) and left drifting under its last chase velocity with no update()
+  // to deaggro it — is back to idle, at home, when the player reappears.
+  reset() {
+    if (this.dead) return;
+    // Kill any in-flight activation tweens (punch scale, flash alpha) so they
+    // can't re-apply chase visuals after the reset.
+    this.scene.tweens.killTweensOf(this);
+    if (this.gfx) this.scene.tweens.killTweensOf(this.gfx);
+
+    this.chasing = false;
+    this.activating = false;
+    this.punch = 1;
+    this.facingSign = 1;
+    this.visTime = 0;
+
+    // Snap the physics body home and stop it (it has gravity disabled already).
+    this.x = this.startX;
+    this.y = this.startY;
+    if (this.body) {
+      this.body.reset(this.startX, this.startY);
+      this.body.setVelocity(0, 0);
+    }
+
+    // Restore the idle look of the visible chevron container. NOTE: do not touch
+    // `this` (the Triangle) alpha — it is intentionally invisible (physics only);
+    // only `this.gfx` is drawn.
+    if (this.gfx) {
+      this.gfx.setPosition(this.startX, this.startY);
+      this.gfx.setAlpha(0.6);
+      this.gfx.setScale(1);
+      this.gfx.angle = 0;
+    }
+    if (this.eye) this.eye.setFillStyle(0xffffff, 0.9); // calm white eye
   }
 
   // Killed by the player's attack: white flash, particle burst, shake, destroy.

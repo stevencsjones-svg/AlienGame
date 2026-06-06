@@ -28,7 +28,13 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
     this.direction = 1; // 1 = right, -1 = left
     this.prevDirection = 1;
     this.baseSpeed = ENEMY.DRONE_SPEED; // unmodified; multiplier applied per frame
-    this.body.setVelocityX(this.baseSpeed * this.direction);
+    // IMPORTANT: do NOT pre-seed a velocity here. Movement is driven entirely by
+    // update(), which only runs while the player is near (the scene culls AI by
+    // distance). A pre-seeded velocity moves the drone via global physics even
+    // while its steering is culled, so a drone spawned far from the player walks
+    // straight off its platform and drifts away before update() ever steers it.
+    // It starts at rest; update() sets its velocity each frame, and the scene
+    // freezes it (velocityX = 0) whenever it is out of range. See freeze().
 
     this.footPhase = 0;
     this.swayTime = 0;
@@ -137,6 +143,14 @@ export default class GroundDrone extends Phaser.GameObjects.Rectangle {
     scene.time.delayedCall(480, () => {
       scene.tweens.add({ targets: txt, alpha: 0, duration: 150, onComplete: () => txt.destroy() });
     });
+  }
+
+  // Halt horizontal drift while the drone is out of the scene's AI-cull range.
+  // The scene calls this every frame for culled drones so global physics can't
+  // walk a non-steering drone off its platform. Vertical velocity (gravity) is
+  // left alone so it still rests on its surface.
+  freeze() {
+    if (this.body) this.body.setVelocityX(0);
   }
 
   // Is the drone currently standing on a static body?

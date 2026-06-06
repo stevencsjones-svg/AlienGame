@@ -45,6 +45,7 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.attackActive = false;
     this.isDead = false;      // mid death/respawn animation
     this.frozen = false;      // hard stop (e.g. level complete)
+    this.inputEnabled = true; // false during scripted moments (e.g. opening pan)
 
     // Coyote time + jump buffering (forgiveness windows, in ms).
     this.coyoteTime = 0;      // remaining window to still ground-jump after leaving a ledge
@@ -87,6 +88,9 @@ export default class Player extends Phaser.GameObjects.Rectangle {
       return;
     }
     if (this.isDead) return; // ignore input while flashing/respawning
+    // Scripted-moment lockout (e.g. the Level 2 opening camera pan): hold still
+    // but keep gravity so the player stays grounded.
+    if (!this.inputEnabled) { this.body.setVelocityX(0); return; }
 
     const k = this.keys;
     const left = k.left.isDown || k.a.isDown;
@@ -248,6 +252,13 @@ export default class Player extends Phaser.GameObjects.Rectangle {
         }
       }
     }
+
+    // BUG 10: cap downward velocity to curb tunnelling through thin platforms on
+    // long, fast drops. (Gravity is integrated after update(), so this trails by
+    // one frame and settles at ~MAX_FALL_SPEED — that's fine.)
+    if (this.body.velocity.y > PLAYER.MAX_FALL_SPEED) {
+      this.body.setVelocityY(PLAYER.MAX_FALL_SPEED);
+    }
   }
 
   // ---- Jump execution (shared by normal press and buffered landing) ---------
@@ -379,6 +390,10 @@ export default class Player extends Phaser.GameObjects.Rectangle {
   die() {
     if (this.isDead) return;
     this.isDead = true;
+    // Cinematic death zoom — fires once at the single death chokepoint, so every
+    // death path (enemy, pit, fall) gets it. Guarded: only scenes with a camera
+    // controller (Game, Level2) react; harmless elsewhere.
+    if (this.scene.cameraController) this.scene.cameraController.cinematicEvent('playerDeath', this.scene);
     this.isDashing = false;
     this.body.setVelocity(0, 0);
     this.body.setAllowGravity(false);
@@ -417,6 +432,11 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.hasJumped = false;
     this.wasOnGround = false;
     this.visuals.show();
+
+    // BUG 9: reset seekers to their idle spawn state as the player reappears, so
+    // a seeker that was mid-chase (and possibly culled + drifting) when the player
+    // died is back home and ready. No-op on scenes with no seekers (Level 1).
+    if (this.scene.seekers) this.scene.seekers.forEach((s) => { if (s.reset) s.reset(); });
   }
 
   // ---- HUD helper ------------------------------------------------------------

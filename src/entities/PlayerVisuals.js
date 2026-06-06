@@ -208,30 +208,55 @@ export default class PlayerVisuals {
     }
   }
 
-  // ---- Attack ----------------------------------------------------------------
+  // ---- Attack (energy slash arc) ---------------------------------------------
+  // A lightsabre-style sweep: a purple glow blade that arcs from upper-forward to
+  // lower-forward over the attack window, with a bright white tip. Animated into
+  // a single Graphics object that tracks the player, then destroyed.
   spawnAttack(facing) {
-    const px = this.player.x;
-    const py = this.player.y;
+    const attackDir = facing; // 1 = right, -1 = left
+    const slashLength = 28;
+    const slashStartAngle = facing === 1 ? -0.8 : Math.PI + 0.8;
+    const slashEndAngle = facing === 1 ? 0.4 : Math.PI - 0.4;
 
-    const hb = this.scene.add
-      .rectangle(px + facing * 14, py + 4, 28, 8, C_CYAN, 0.9)
-      .setDepth(5.6);
-    this.scene.time.delayedCall(PLAYER.ATTACK_DURATION, () => hb.destroy());
+    const scene = this.scene;
+    const player = this.player;
+    const gfx = scene.add.graphics().setDepth(5.6);
 
-    const tipX = px + facing * 28;
-    const tipY = py + 4;
-    for (let i = 0; i < 3; i++) {
-      const r = this.scene.add.rectangle(tipX, tipY, 4, 4, C_CYAN, 0.9).setDepth(5.7);
-      this.scene.tweens.add({
-        targets: r,
-        x: tipX + facing * Phaser.Math.Between(20, 36),
-        y: tipY + (i - 1) * 12,
-        alpha: 0,
-        duration: 200,
-        ease: 'Quad.easeOut',
-        onComplete: () => r.destroy(),
-      });
-    }
+    const draw = (progress) => {
+      if (!gfx.scene) return;
+      const originX = player.x + attackDir * 8;
+      const originY = player.y + 2; // chest height (body origin is centred)
+      const angle = Phaser.Math.Linear(slashStartAngle, slashEndAngle, progress);
+      const ex = originX + Math.cos(angle) * slashLength * attackDir;
+      const ey = originY + Math.sin(angle) * slashLength;
+
+      gfx.clear();
+      // Trail — the previous (start) slash position, fading, early in the swing.
+      if (progress < 0.7) {
+        const sx = originX + Math.cos(slashStartAngle) * slashLength * attackDir;
+        const sy = originY + Math.sin(slashStartAngle) * slashLength;
+        gfx.lineStyle(4, 0xcc00ff, 0.12);
+        gfx.beginPath(); gfx.moveTo(originX, originY); gfx.lineTo(sx, sy); gfx.strokePath();
+      }
+      // Outer glow — wide, low opacity.
+      gfx.lineStyle(8, 0xcc00ff, 0.25);
+      gfx.beginPath(); gfx.moveTo(originX, originY); gfx.lineTo(ex, ey); gfx.strokePath();
+      // Core — narrow, bright.
+      gfx.lineStyle(2, 0xee88ff, 0.95);
+      gfx.beginPath(); gfx.moveTo(originX, originY); gfx.lineTo(ex, ey); gfx.strokePath();
+      // Bright tip.
+      gfx.fillStyle(0xffffff, 0.9);
+      gfx.fillRect(ex - 2, ey - 2, 4, 4);
+    };
+
+    draw(0);
+    scene.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: PLAYER.ATTACK_DURATION,
+      onUpdate: (tw) => draw(tw.getValue()),
+      onComplete: () => gfx.destroy(),
+    });
   }
 
   // ---- Death fragments -------------------------------------------------------

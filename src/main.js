@@ -12,6 +12,8 @@ import UI from './scenes/UI.js';
 import ChromaticAberrationPipeline from './pipelines/ChromaticAberrationPipeline.js';
 import BloomPipeline from './pipelines/BloomPipeline.js';
 import CRTPipeline from './pipelines/CRTPipeline.js';
+import RimLightPipeline from './pipelines/RimLightPipeline.js';
+import ColorGradePipeline from './pipelines/ColorGradePipeline.js';
 
 // =============================================================================
 // main.js — Phaser game config and boot.
@@ -36,7 +38,10 @@ const config = {
     },
   },
   // Custom post-FX pipelines (WebGL).
-  pipeline: { ChromaticAberrationPipeline, BloomPipeline, CRTPipeline },
+  pipeline: {
+    ChromaticAberrationPipeline, BloomPipeline, CRTPipeline,
+    RimLightPipeline, ColorGradePipeline,
+  },
   // Preload boots -> MainMenu -> Game -> Level2 (each launches the UI overlay).
   scene: [Preload, MainMenu, Game, Level2, UI],
 };

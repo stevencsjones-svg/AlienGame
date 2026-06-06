@@ -27,12 +27,47 @@ export const ASSIST_MODE = {
   GAME_SPEED_MULTIPLIER:  0.75, // applied to physics.world.timeScale
 };
 
+// ---- Visual enhancement tunables --------------------------------------------
+// Rim light (player sprite) + final colour grade. See RimLightPipeline.js and
+// ColorGradePipeline.js.
+export const VISUAL = {
+  RIM_INTENSITY: 0.6,
+  RIM_WIDTH:     1.5,
+  COLOR_GRADE: {
+    SHADOW_LIFT:  0.03,
+    MIDTONE_TINT: 0.6,
+    CONTRAST:     1.08,
+    SATURATION:   1.12,
+  },
+};
+
+// ---- Cinematic camera reactions ---------------------------------------------
+// Zoom targets/durations for CameraController.cinematicEvent(), plus the
+// plunge/ascent shaft dynamic look-ahead (Level 2). See CameraController.js.
+export const CAMERA_EVENT = {
+  SEEKER_ZOOM_OUT:       0.94,
+  SEEKER_ZOOM_DURATION:  120,
+  DEATH_ZOOM_OUT:        0.88,
+  DEATH_ZOOM_DURATION:   300,
+  DEATH_HOLD_MS:         300,
+  ABILITY_ZOOM_IN:       1.10,
+  ABILITY_ZOOM_DURATION: 200,
+  ABILITY_HOLD_MS:       400,
+  PORTAL_ZOOM_OUT:       0.82,
+  PORTAL_ZOOM_DURATION:  2000,
+  SHAFT_LOOKAHEAD_MAX:   120,  // px downward (plunge); ascent uses -80
+  SHAFT_LOOKAHEAD_LERP:  0.04,
+};
+
 // Dev flag: when true, narrative beats that would interrupt iteration (the
 // opening title cards) are skipped silently. Set to false for playtest builds.
-export const DEV_MODE = true;
+export const DEV_MODE = false;
 
-// Falling below this y-value (i.e. into a pit) kills the player.
-export const DEATH_Y = WORLD.HEIGHT + 50;
+// Falling below this y-value (i.e. into a pit) kills the player. Pushed well
+// below the world floor (the camera is bounded to WORLD.HEIGHT, so the player
+// is already off-screen by ~WORLD.HEIGHT) so the death FX fire after they've
+// clearly fallen out of view rather than at the lip of the pit. (BUG 7)
+export const DEATH_Y = WORLD.HEIGHT + 400;
 
 // ---- Player -----------------------------------------------------------------
 export const PLAYER = {
@@ -77,6 +112,13 @@ export const PLAYER = {
   ATTACK_WIDTH: 30,    // attack hitbox size
   ATTACK_HEIGHT: 12,
   ATTACK_DURATION: 150,// how long the attack visual lingers (ms)
+
+  // BUG 10: clamp downward velocity so a fast/long fall can't tunnel through a
+  // thin (14px) platform in a single frame. 800px/s ≈ 13px/frame at 60fps, just
+  // under the platform thickness. NOTE: this also slows the Level 2 plunge-shaft
+  // descent (a deliberately long free-fall) — raise it if you prefer a faster
+  // plunge over tunnel-proofing, or gate the cap by section.
+  MAX_FALL_SPEED: 800,
 
   SPAWN_X: 80,
   SPAWN_Y: 750,

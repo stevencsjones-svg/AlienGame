@@ -19,9 +19,15 @@ void main() {
   vec2 uv = outTexCoord;
   vec2 offset = vec2(uOffset * uIntensity, 0.0);
 
-  float r = texture2D(uMainSampler, uv + offset).r;
+  // Clamp the offset samples to valid UV bounds so the channel split can't read
+  // off the edge of the framebuffer (which showed as a coloured line/streak at
+  // the screen edge on big hits).
+  vec2 uvR = clamp(uv + offset, 0.001, 0.999);
+  vec2 uvB = clamp(uv - offset, 0.001, 0.999);
+
+  float r = texture2D(uMainSampler, uvR).r;
   float g = texture2D(uMainSampler, uv).g;
-  float b = texture2D(uMainSampler, uv - offset).b;
+  float b = texture2D(uMainSampler, uvB).b;
   float a = texture2D(uMainSampler, uv).a;
 
   gl_FragColor = vec4(r, g, b, a);

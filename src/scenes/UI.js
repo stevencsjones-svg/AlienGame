@@ -77,6 +77,21 @@ export default class UI extends Phaser.Scene {
     this.countText.setText(`${c} / ${total}`);
     this.secretText.setText(`${s} / ${HIDDEN_COLLECTIBLE_COUNT}`);
 
+    // FIX 4 (Level 1 only): progress hint on the collectible counter.
+    //  <50% normal · >=50% brightens · >=75% trailing "..." · 100% diamond prefix.
+    if (this.scene.isActive('Game')) {
+      const ratio = total > 0 ? c / total : 0;
+      if (ratio >= 1) {
+        this.countText.setText(`◆ ${c} / ${total}`).setColor('#ffffff');
+      } else if (ratio >= 0.75) {
+        this.countText.setText(`${c} / ${total} ...`).setColor('#66ffe0');
+      } else if (ratio >= 0.5) {
+        this.countText.setColor('#66ffe0');
+      } else {
+        this.countText.setColor('#00e5ff');
+      }
+    }
+
     if (c !== this.lastCount) {
       this.lastCount = c;
       this.pulse([this.icon, this.countText]);

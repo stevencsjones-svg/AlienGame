@@ -16,6 +16,7 @@ import ShieldPickup from '../entities/ShieldPickup.js';
 import ParallaxBackground from '../background/ParallaxBackground.js';
 import UndergroundAtmosphere from '../background/UndergroundAtmosphere.js';
 import ChromaticAberrationPipeline from '../pipelines/ChromaticAberrationPipeline.js';
+import CameraController from '../camera/CameraController.js';
 import DiegeticHUD from '../ui/DiegeticHUD.js';
 import { buildPlatformVisual } from '../entities/platformVisual.js';
 import { createCollectible, spawnPickupShards } from '../entities/collectible.js';
@@ -162,11 +163,12 @@ export default class Level2 extends Phaser.Scene {
     this.pauseMode = 'main';
     this.assistSelection = 0;
 
-    // ---- Post-FX (Bloom -> Chromatic -> CRT) ----
+    // ---- Post-FX (Bloom -> Chromatic -> CRT -> Grade) ----
     if (this.renderer && this.renderer.type === Phaser.WEBGL) {
       this.cameras.main.setPostPipeline('BloomPipeline');
       this.cameras.main.setPostPipeline(ChromaticAberrationPipeline);
       this.cameras.main.setPostPipeline('CRTPipeline');
+      this.cameras.main.setPostPipeline('ColorGradePipeline'); // final grade
     }
 
     // ---- Lighting ----
@@ -202,12 +204,18 @@ export default class Level2 extends Phaser.Scene {
     // Section 4 water reflections (visual, below the waterline).
     this.buildReflections();
 
-    // ---- Death pit kill zones (invisible static triggers 100px below floor gaps) ----
-    // Only fire in Section 1/2 (horizontal), not S5 which shares the same x range at the top.
-    this.pitKillZone1 = this.add.rectangle(2230, 760, 260, 20).setVisible(false);
+    // ---- Death pit kill zones (invisible static triggers below the floor gaps) ----
+    // BUG 7: previously at y760, which is INSIDE the visible camera (S1+2 floor is
+    // 660, camera bottom ≈890), so the player exploded on-screen at the pit lip.
+    // Now their top edge sits at y1000 (well below the camera bottom) so the
+    // player has fallen out of view first. Made 700px tall (top y1000 → bottom
+    // y1700) so a fast faller cannot tunnel through a thin trigger in one frame.
+    // Only fire in Section 1/2 (horizontal), not S5 which shares the same x range.
+    this.pitKillZone1 = this.add.rectangle(2230, 1350, 260, 700).setVisible(false);
     this.physics.add.existing(this.pitKillZone1, true);
-    this.pitKillZone2 = this.add.rectangle(5610, 760, 220, 20).setVisible(false);
+    this.pitKillZone2 = this.add.rectangle(5610, 1350, 220, 700).setVisible(false);
     this.physics.add.existing(this.pitKillZone2, true);
+    this.createSpikePits(); // FIX 7 — visible spikes over the S1/S2 pit gaps
 
     // ---- World signs (environmental storytelling) ----
     this.createWorldSigns();
@@ -218,6 +226,8 @@ export default class Level2 extends Phaser.Scene {
     this.player.canDoubleJump = true;
     this.player.canDash = true;
     this.player.hasAttack = false;
+    // NOTE: RimLightPipeline is intentionally NOT applied to the player — on the
+    // sprite it produced a box artefact around the character. Kept for future use.
 
     // ---- Route seals (contain the shafts until earned) ----
     this.buildSeals();
@@ -302,6 +312,11 @@ export default class Level2 extends Phaser.Scene {
 
     // ---- Camera ----
     this.cameras.main.startFollow(this.player, true, CAM_LERP.horizontal[0], CAM_LERP.horizontal[1]);
+    // Events-only CameraController: Level 2 drives the main camera itself (lerp,
+    // cinematicPull), so we never call this controller's update() — it exists
+    // purely to reuse cinematicEvent() and the shaft look-ahead. It shares the
+    // main camera, so its zoom/offset operations apply to the real view.
+    this.cameraController = new CameraController(this, this.cameras.main, 'horizontal');
 
     // ---- Opening title card (once per session; skipped in DEV_MODE) ----
     if (!DEV_MODE && !level2TitleShown) {
@@ -312,6 +327,30 @@ export default class Level2 extends Phaser.Scene {
         "You didn't think it could get worse than the street.",
         0x00cc66,
       );
+    }
+
+    // ---- FIX 5: opening camera pan (once per session; skipped in DEV_MODE) ----
+    // Establish the goal: hold on spawn, pan down to the exit portal deep in the
+    // ascent shaft (1100,5100), hold, then pan back and hand control to the
+    // player. Input is locked for the duration (player.inputEnabled).
+    if (!DEV_MODE && !this.openingPanShown) {
+      this.openingPanShown = true;
+      this.player.inputEnabled = false;
+      this.cameraLocked = true; // stop update()'s per-section lerp fighting the pan
+      const cam = this.cameras.main;
+      cam.stopFollow();
+      this.time.delayedCall(800, () => { // 1. hold on spawn
+        cam.pan(1100, 5100, 1200, 'Sine.easeInOut'); // 2. pan to the exit
+        this.time.delayedCall(1200 + 1500, () => { // 3. hold on the exit
+          cam.pan(this.player.x, this.player.y, 1000, 'Sine.easeInOut', false, (c, progress) => {
+            if (progress !== 1) return; // 4. pan back, then restore
+            cam.startFollow(this.player, true, CAM_LERP.horizontal[0], CAM_LERP.horizontal[1]);
+            this.applyCameraLerp(this.getSection(this.player.x, this.player.y));
+            this.cameraLocked = false;
+            this.player.inputEnabled = true;
+          });
+        });
+      });
     }
   }
 
@@ -845,6 +884,21 @@ export default class Level2 extends Phaser.Scene {
     this.player.takeHit();
   }
 
+  // Push the player-light position (UV/screen space) and the sprite's on-screen
+  // size into the rim-light pipeline each frame. No-ops on Canvas / if unattached.
+  updateRimLight() {
+    const spr = this.player && this.player.visuals && this.player.visuals.sprite;
+    if (!spr || !spr.getPostPipeline) return;
+    let rim = spr.getPostPipeline('RimLightPipeline');
+    if (Array.isArray(rim)) rim = rim[0];
+    if (!rim || !this.playerLight) return;
+    rim.uLightPos = [
+      (this.playerLight.x - this.cameras.main.scrollX) / this.scale.width,
+      (this.playerLight.y - this.cameras.main.scrollY) / this.scale.height,
+    ];
+    rim.uResolution = [Math.max(1, spr.displayWidth), Math.max(1, spr.displayHeight)];
+  }
+
   // Death pits — instant kill, bypasses shield. Guard: only lethal in horizontal
   // sections so the S5 ascent shaft (shares x range with pit 1) is never affected.
   onPitDeath() {
@@ -852,6 +906,27 @@ export default class Level2 extends Phaser.Scene {
     if (AssistMode.get('invincibility')) return;
     if (this.getSection(this.player.x, this.player.y) !== 'horizontal') return;
     this.player.die();
+  }
+
+  // ---- FIX 7: visible spikes over the existing S1/S2 death pits ---------------
+  // Visual only — the kill is already handled by pitKillZone1/2 (onPitDeath) and
+  // the y>5900 backstop, so this just draws the dark pit floor + purple spikes.
+  addSpikePit(x, y, width) {
+    this.add.rectangle(x + width / 2, y + 20, width, 40, 0x000000, 0.95).setDepth(2);
+    const spikeCount = Math.floor(width / 14);
+    const g = this.add.graphics().setDepth(3);
+    for (let i = 0; i < spikeCount; i++) {
+      const sx = x + i * 14 + 7;
+      g.fillStyle(0xbf00ff, 0.9);
+      g.fillTriangle(sx - 5, y + 12, sx + 5, y + 12, sx, y);
+      g.fillStyle(0xffffff, 0.3);
+      g.fillTriangle(sx - 2, y + 10, sx + 2, y + 10, sx, y + 2);
+    }
+  }
+
+  createSpikePits() {
+    this.addSpikePit(2100, 660, 260); // S1 pit (footprint of pitKillZone1)
+    this.addSpikePit(5500, 660, 220); // S2 pit (footprint of pitKillZone2)
   }
 
   onCollect(player, c) {
@@ -881,6 +956,7 @@ export default class Level2 extends Phaser.Scene {
     ap.destroy();
     this.abilityPickup = null;
     // AUDIO: ability unlock — FL Studio
+    this.cameraController.cinematicEvent('abilityUnlock', this); // power-fantasy zoom punch
     this.showAbilityPanel('ATTACK UNLOCKED', 'Press Z to attack');
     this.flashScreen(0xffffff, 0.6, 300);
   }
@@ -991,6 +1067,8 @@ export default class Level2 extends Phaser.Scene {
   onLevelComplete() {
     if (this.levelDone) return;
     this.levelDone = true;
+    // Cinematic: slow zoom out over the conquered level (stays out for the overlay).
+    this.cameraController.cinematicEvent('portalReached', this);
     // AUDIO: level complete — FL Studio
     if (this.portalOsc) this.portalOsc.stop();
     this.player.frozen = true;
@@ -1106,11 +1184,21 @@ export default class Level2 extends Phaser.Scene {
     }
 
     // Camera lerp per section (unless a cinematic owns the camera).
-    if (!this.cameraLocked) this.applyCameraLerp(this.getSection(px, py));
+    if (!this.cameraLocked) {
+      this.applyCameraLerp(this.getSection(px, py));
+      // Dynamic shaft look-ahead — leads down while falling, up while climbing.
+      this.cameraController.updateShaftLookAhead(this.player);
+    }
 
     // Enemies (skip AI > 2400px from player).
     const near = (e) => Phaser.Math.Distance.Between(e.x, e.y, px, py) < 2400;
-    for (const d of this.drones) if (d.active && near(d)) d.update(time, delta);
+    // Drones STEER when near, FREEZE when far — a culled drone keeps moving under
+    // global physics otherwise and drifts off its platform (same root-cause fix
+    // as Level 1). Only ever moves while actively steering.
+    for (const d of this.drones) {
+      if (!d.active) continue;
+      if (near(d)) d.update(time, delta); else d.freeze();
+    }
     for (const s of this.sentinels) if (s.active && near(s)) s.update(time, delta);
     for (const s of this.seekers) if (s.active && near(s)) s.update(time, delta);
 
@@ -1161,7 +1249,9 @@ export default class Level2 extends Phaser.Scene {
     const portalText = this.children.getByName('portalText');
     if (portalText) portalText.setAlpha(0.3 + 0.2 * (0.5 + 0.5 * Math.sin(t / 1000)));
 
-    // Fell out of the world.
-    if (!this.player.isDead && this.player.y > H && !AssistMode.get('invincibility')) this.player.die();
+    // Fell out of the world (below the S4 floor at 5660 + backstop at 5810).
+    // BUG 7: trigger at 5900 (just past the backstop, off-screen) instead of the
+    // world bottom (6000) so a fall-through death fires promptly once they're gone.
+    if (!this.player.isDead && this.player.y > 5900 && !AssistMode.get('invincibility')) this.player.die();
   }
 }
