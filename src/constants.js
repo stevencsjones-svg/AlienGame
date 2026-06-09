@@ -61,7 +61,7 @@ export const CAMERA_EVENT = {
 
 // Dev flag: when true, narrative beats that would interrupt iteration (the
 // opening title cards) are skipped silently. Set to false for playtest builds.
-export const DEV_MODE = false;
+export const DEV_MODE = true;
 
 // Falling below this y-value (i.e. into a pit) kills the player. Pushed well
 // below the world floor (the camera is bounded to WORLD.HEIGHT, so the player
@@ -419,3 +419,16 @@ export const LEVEL_PALETTES = {
     bgTint: 0x080808,
   },
 };
+
+// ---- Level 3: Transit Network (Electric Blue) -------------------------------
+// Player starts 10% faster than base; +5% at Section 2 and +5% at Section 4
+// stack multiplicatively (applied via the player's speed multiplier in Level3).
+export const PLAYER_SPEED_L3_BASE = PLAYER.SPEED * 1.10;
+export const L3_PALETTE_PRIMARY = '#22eeff';
+export const L3_PALETTE_SECONDARY = '#0088cc';
+export const L3_PALETTE_ACCENT = '#88ffff';
+export const L3_PALETTE_BG = '#030d18';
+export const L3_PALETTE_SHIFT_X = 8000;
+export const L3_PALETTE_SHIFT_DURATION = 3000;
+export const L3_TRAIN_SPEED_MID = 1.0;
+export const L3_TRAIN_SPEED_NEAR = 2.4;

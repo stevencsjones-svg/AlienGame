@@ -8,6 +8,7 @@ import Preload from './scenes/Preload.js';
 import MainMenu from './scenes/MainMenu.js';
 import Game from './scenes/Game.js';
 import Level2 from './scenes/Level2.js';
+import Level3 from './scenes/Level3.js';
 import UI from './scenes/UI.js';
 import ChromaticAberrationPipeline from './pipelines/ChromaticAberrationPipeline.js';
 import BloomPipeline from './pipelines/BloomPipeline.js';
@@ -43,7 +44,7 @@ const config = {
     RimLightPipeline, ColorGradePipeline,
   },
   // Preload boots -> MainMenu -> Game -> Level2 (each launches the UI overlay).
-  scene: [Preload, MainMenu, Game, Level2, UI],
+  scene: [Preload, MainMenu, Game, Level2, Level3, UI],
 };
 
 // eslint-disable-next-line no-new

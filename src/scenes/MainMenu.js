@@ -62,13 +62,16 @@ export default class MainMenu extends Phaser.Scene {
       .setOrigin(0.5).setScrollFactor(0).setDepth(11).setAlpha(0.6);
 
     // ---- Level select ----
+    // `requires` = the level number that must be completed to unlock this one
+    // (0 = always available). Gating is checked live against Progression.
     this.levels = [
-      { label: 'LEVEL 1   ALIEN CITY', scene: 'Game' },
-      { label: 'LEVEL 2   THE DESCENT', scene: 'Level2' },
+      { label: 'LEVEL 1   ALIEN CITY', scene: 'Game', requires: 0 },
+      { label: 'LEVEL 2   THE DESCENT', scene: 'Level2', requires: 1 },
+      { label: 'LEVEL 3   TRANSIT NETWORK', scene: 'Level3', requires: 2 },
     ];
     this.selectedIndex = 0;
     this.levelTexts = this.levels.map((lvl, i) => this.add
-      .text(cx, cy + 124 + i * 30, lvl.label, {
+      .text(cx, cy + 120 + i * 28, lvl.label, {
         fontFamily: 'monospace', fontSize: '16px', color: '#00ff88',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11)
@@ -76,17 +79,14 @@ export default class MainMenu extends Phaser.Scene {
       .on('pointerover', () => { this.selectedIndex = i; this.updateSelection(); })
       .on('pointerdown', () => { this.selectedIndex = i; this.startGame(); }));
 
-    // ---- Progression gating of the Level 2 option ----
-    this.level2Unlocked = Progression.hasCompleted(1) || DEV_MODE;
-    this.level2Complete = Progression.hasCompleted(2);
-    // Lock / completion indicator drawn after the Level 2 row (own colour/size).
-    this.level2Indicator = this.add
+    // ---- Progression gating: one lock / completion indicator per level row ----
+    this.levelIndicators = this.levels.map(() => this.add
       .text(0, 0, '', { fontFamily: 'monospace', fontSize: '9px', color: '#ff6a00' })
-      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false);
+      .setOrigin(0, 0.5).setScrollFactor(0).setDepth(11).setVisible(false));
 
     // ---- Controls hint (blinks) ----
     const hint = this.add
-      .text(cx, cy + 190, '↑ ↓  SELECT       SPACE / ENTER  START', {
+      .text(cx, cy + 216, '↑ ↓  SELECT       SPACE / ENTER  START', {
         fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11);
@@ -125,11 +125,7 @@ export default class MainMenu extends Phaser.Scene {
     // on every scene.start; this 'wake' handler covers a sleep/wake path too.
     if (!this._wakeBound) {
       this._wakeBound = true;
-      this.events.on('wake', () => {
-        this.level2Unlocked = Progression.hasCompleted(1) || DEV_MODE;
-        this.level2Complete = Progression.hasCompleted(2);
-        this.updateLevelSelectDisplay();
-      });
+      this.events.on('wake', () => this.updateLevelSelectDisplay());
     }
   }
 
@@ -141,48 +137,64 @@ export default class MainMenu extends Phaser.Scene {
     // AUDIO: menu move
   }
 
-  // Highlight the active level, dim the rest. Locked Level 2 stays dimmed green
+  // A level is unlocked if it has no requirement, DEV_MODE is on, or the
+  // required level has been completed. `complete` reads the live save.
+  levelUnlocked(i) {
+    const req = this.levels[i].requires;
+    return req === 0 || DEV_MODE || Progression.hasCompleted(req);
+  }
+
+  levelComplete(i) {
+    return Progression.hasCompleted(i + 1); // level number = index + 1
+  }
+
+  // Highlight the active level, dim the rest. A locked level stays dimmed green
   // (#00ff88 @ 20%) regardless of selection, per the lock styling.
   updateSelection() {
     this.levelTexts.forEach((t, i) => {
       const sel = i === this.selectedIndex;
       t.setText(`${sel ? '▶  ' : '    '}${this.levels[i].label}${sel ? '  ◀' : '   '}`);
-      const locked = i === 1 && !this.level2Unlocked;
-      if (locked) {
+      if (!this.levelUnlocked(i)) {
         t.setColor('#00ff88').setAlpha(0.2);
       } else {
         t.setColor(sel ? '#ff6a00' : '#00ff88').setAlpha(sel ? 1 : 0.4);
       }
       t.setScale(sel ? 1.08 : 1);
     });
-    // Keep the Level 2 indicator pinned just right of its (re-scaled) row.
-    if (this.level2Indicator && this.level2Indicator.visible) {
-      const lvl2 = this.levelTexts[1];
-      this.level2Indicator.setPosition(lvl2.x + lvl2.displayWidth / 2 + 6, lvl2.y);
+    // Keep each indicator pinned just right of its (re-scaled) row.
+    if (this.levelIndicators) {
+      this.levelIndicators.forEach((ind, i) => {
+        if (!ind || !ind.visible) return;
+        const row = this.levelTexts[i];
+        ind.setPosition(row.x + row.displayWidth / 2 + 6, row.y);
+      });
     }
   }
 
-  // Set the Level 2 lock/completion indicator from progression, then refresh
-  // the selection visuals (which also repositions the indicator).
+  // Set each level's lock/completion indicator from progression, then refresh
+  // the selection visuals (which also repositions the indicators).
   updateLevelSelectDisplay() {
-    if (!this.level2Indicator) return;
-    if (!this.level2Unlocked) {
-      this.level2Indicator.setText('[LOCKED]').setColor('#ff6a00').setFontSize(9).setAlpha(0.5).setVisible(true);
-    } else if (this.level2Complete) {
-      this.level2Indicator.setText('✓').setColor('#00ff88').setFontSize(12).setAlpha(0.9).setVisible(true);
-    } else {
-      this.level2Indicator.setVisible(false);
-    }
+    if (!this.levelIndicators) return;
+    this.levels.forEach((lvl, i) => {
+      const ind = this.levelIndicators[i];
+      if (!this.levelUnlocked(i)) {
+        ind.setText('[LOCKED]').setColor('#ff6a00').setFontSize(9).setAlpha(0.5).setVisible(true);
+      } else if (this.levelComplete(i)) {
+        ind.setText('✓').setColor('#00ff88').setFontSize(12).setAlpha(0.9).setVisible(true);
+      } else {
+        ind.setVisible(false);
+      }
+    });
     this.updateSelection();
   }
 
   // Brief "locked" hint shown when the player tries to start a locked level.
-  showLockedMessage() {
+  showLockedMessage(reqLevel) {
     if (this.lockMsg) return; // one at a time
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
     this.lockMsg = this.add
-      .text(cx, cy + 168, 'COMPLETE LEVEL 1 TO UNLOCK', {
+      .text(cx, cy + 200, `COMPLETE LEVEL ${reqLevel} TO UNLOCK`, {
         fontFamily: 'monospace', fontSize: '10px', color: '#ff6a00',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(12).setAlpha(0);
@@ -199,10 +211,11 @@ export default class MainMenu extends Phaser.Scene {
 
   startGame() {
     if (this.starting) return;
-    const target = this.levels[this.selectedIndex].scene;
-    // Gate: selecting a locked Level 2 shows a hint instead of starting.
-    if (target === 'Level2' && !this.level2Unlocked) {
-      this.showLockedMessage();
+    const i = this.selectedIndex;
+    const target = this.levels[i].scene;
+    // Gate: selecting a locked level shows a hint instead of starting.
+    if (!this.levelUnlocked(i)) {
+      this.showLockedMessage(this.levels[i].requires);
       return;
     }
     this.starting = true;
