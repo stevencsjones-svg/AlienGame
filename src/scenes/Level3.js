@@ -84,13 +84,6 @@ const SENTINELS = [[7400, 2650], [10300, 2620]];                  // S3, S4
 const COLLECTIBLES = [[1700, 2820], [5100, 2800], [8600, 2740], [14000, 2660]]; // 4 visible
 const SECRETS = [[6900, 2620], [12400, 2560]];                    // 2 hidden (orange)
 
-// Rail lines per section [x1, x2, y].
-const RAILS = [
-  [0, 3000, 2800], [0, 3000, 2600],          // S1
-  [6000, 9000, 2800], [6000, 9000, 2400],    // S3 (mixed heights)
-  [3000, 16000, 2900],                       // long service rail beneath the run
-];
-
 export default class Level3 extends Phaser.Scene {
   constructor() {
     super('Level3');
@@ -121,9 +114,6 @@ export default class Level3 extends Phaser.Scene {
     this.drones = [];
     this.sentinels = [];
     this.seekers = [];
-    this.midTrains = [];
-    this.nearTrains = [];
-    this.signals = [];
     this.respawnX = 200;
     this.respawnY = 3000;
     this.checkpointActive = false;
@@ -142,27 +132,21 @@ export default class Level3 extends Phaser.Scene {
       this.cameras.main.setPostPipeline('CRTPipeline');
       this.cameras.main.setPostPipeline('ColorGradePipeline');
       // Cold-blue bias: the ColorGrade pipeline exposes no per-channel knobs, so
-      // nudge its midtone tint cooler here + a faint blue overlay (below) does the
-      // rest (approximates the spec's "blue +0.15 / red -0.1" without editing the
-      // shared pipeline shader).
+      // nudge its midtone tint cooler here (approximates the spec's cold cast
+      // without editing the shared pipeline shader). The layered sky/background
+      // below supplies the rest of the colour.
       let cg = this.cameras.main.getPostPipeline('ColorGradePipeline');
       if (Array.isArray(cg)) cg = cg[0];
       if (cg) { this.colorGrade = cg; cg.uMidtoneTint += 0.5; }
     }
-    // Faint blue cast over the whole frame (fixed to camera). Brightens on the
-    // mid-level palette shift.
-    this.blueCast = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x0a3a66, 0.05)
-      .setOrigin(0, 0).setScrollFactor(0).setDepth(207);
 
     // ---- Lighting ----
     this.lights.enable();
     this.lights.setAmbientColor(P.AMBIENT);
 
-    // ---- Parallax train background ----
+    // ---- Multi-layer parallax background (sky, glow, city, trains, rails,
+    // signals, particles) — all screen-anchored, redrawn each frame. ----
     this.buildBackground();
-
-    // ---- Foreground rails + signal lights (behind platforms) ----
-    this.buildRails();
 
     // ---- Geometry ----
     GROUND.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
@@ -244,111 +228,297 @@ export default class Level3 extends Phaser.Scene {
   // trains (0.4). Trains drift left and wrap; near trains carry a motion-blur
   // trail. Train rows live in the visible world band (the camera tracks ~y2400–
   // 3100), adapted from the spec's abstract background-layer Y values.
-  // ---------------------------------------------------------------------------
-  // Background layers are SCREEN-anchored (scrollFactor 0) and parallaxed by
-  // hand each frame in updateBackground() — the same approach L2's parallax uses.
-  // (Drawing them at world coords with scrollFactor < 1 pushed them far below the
-  // viewport, because the camera tracks the player near the floor at world y3000.)
+  // ===========================================================================
+  // Multi-layer parallax background. Every layer is a screen-anchored Graphics
+  // (scrollFactor 0) cleared + redrawn each frame, parallaxed by hand via
+  // camera.scrollX * factor — the same pattern L2 uses. Data + timers are
+  // allocated once here; update() only redraws + advances scalar positions.
+  // Vertical layout is authored in a 600px design space and scaled to the real
+  // viewport height (sf); horizontal sizes/spacing stay in design px.
+  // ===========================================================================
   buildBackground() {
-    // Far cityscape — one Graphics fixed to the screen; redrawn each frame with a
-    // slow horizontal offset (parallax = camera.scrollX * 0.1), buildings rising
-    // from the screen bottom. Depth -10.
-    this.bgFar = this.add.graphics().setScrollFactor(0).setDepth(-10);
-    this.farPatternW = 2400; // buildings repeat every this many px of scroll
-    this.farBuildings = [];
-    let bx = 0;
-    while (bx < this.farPatternW) {
-      const bw = 40 + ((bx * 7) % 60);
-      const bh = 260 + ((bx * 13) % 420);
-      this.farBuildings.push({ x: bx, w: bw, h: bh });
-      bx += bw + 24;
-    }
-
-    // Trains — screen-fixed containers (scrollFactor 0) that drift left + wrap.
     const vw = this.scale.width;
     const vh = this.scale.height;
-    for (let i = 0; i < 4; i++) { // mid (depth -9)
-      const y = vh * (0.30 + i * 0.07);
-      const speed = L3_TRAIN_SPEED_MID * (0.8 + (i % 3) * 0.2); // 0.8–1.2
-      this.midTrains.push(this.buildTrain(vw * (i / 4) + 100, y, 6, 60, 28, 0x0a3050, 0x22eeff, 0.4, -9, speed, false));
+    this.BG_BAND = 6000; // tiling width for the city / glow / signal bands
+
+    // Shared palette (tweened at the x8000 shift; read each frame when drawing).
+    this.bgPalette = { neon: 0x22eeff, accent: 0x88ffff, skyBottom: 0x030d18 };
+
+    // Seeded RNG (mulberry32) so the city/layout is identical every run.
+    let t = 9931 >>> 0;
+    const rng = () => {
+      t += 0x6d2b79f5;
+      let r = Math.imul(t ^ (t >>> 15), 1 | t);
+      r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
+      return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+
+    // Layer Graphics (created back-to-front; same-depth ties resolve by order).
+    this.gSky = this.add.graphics().setScrollFactor(0).setDepth(-11);
+    this.gGlow = this.add.graphics().setScrollFactor(0).setDepth(-10);
+    this.gCity = this.add.graphics().setScrollFactor(0).setDepth(-10);
+    this.gDeep = this.add.graphics().setScrollFactor(0).setDepth(-9);
+    this.gSignals = this.add.graphics().setScrollFactor(0).setDepth(-9);
+    this.gRails = this.add.graphics().setScrollFactor(0).setDepth(-8);
+    this.gMid = this.add.graphics().setScrollFactor(0).setDepth(-8);
+    this.gNear = this.add.graphics().setScrollFactor(0).setDepth(-7);
+    this.gParticles = this.add.graphics().setScrollFactor(0).setDepth(-6);
+
+    // Moon — a glowing disc sitting behind the skyline (depth between sky and
+    // city), plus a Light2D "moonlight" that tracks the moon's on-screen position
+    // each frame so it casts a cool, gently pulsing glow over the lit world.
+    this.gMoon = this.add.graphics().setScrollFactor(0).setDepth(-10.5);
+    this.moonLight = this.lights.addLight(0, 0, 900).setColor(0x88ccff).setIntensity(1.0);
+
+    // Distant glow columns (static).
+    this.glowCols = [];
+    for (let i = 0; i < 4; i++) this.glowCols.push({ x: (i + 0.5) * (this.BG_BAND / 4), alpha: 0.03 + rng() * 0.02 });
+
+    // City silhouette (~40 buildings; every 5th gets a pulsing rooftop light).
+    this.buildings = [];
+    let bx = 0; let bi = 0;
+    while (bx < this.BG_BAND && this.buildings.length < 40) {
+      const bw = 30 + rng() * 70;
+      const bh = 80 + rng() * 240;
+      const b = { x: bx, w: bw, h: bh, color: rng() < 0.5 ? 0x071a2e : 0x0a2040, lit: bi % 5 === 0, blue: false };
+      this.buildings.push(b);
+      if (b.lit) this.time.addEvent({ delay: 3000 + rng() * 4000, loop: true, callback: () => { b.blue = !b.blue; } });
+      bx += bw + 8 + rng() * 22; bi++;
     }
-    for (let i = 0; i < 2; i++) { // near (depth -8), larger + faster + motion blur
-      const y = vh * (0.42 + i * 0.12);
-      const speed = L3_TRAIN_SPEED_NEAR * (0.85 + i * 0.15); // ~2.0–2.8
-      this.nearTrains.push(this.buildTrain(vw * (i / 2) + 200, y, 6, 80, 34, 0x0d3d5a, 0x44ffff, 0.6, -8, speed, true));
+
+    // Trains: deep (factor 0.1) / mid (0.2) / near (0.4). y in 600-design space.
+    this.deepTrains = [
+      this.makeTrain(rng() * vw, 180, 6, 50, 22, 3, 0x0a2a40, 'neon', 0.4, 0.1, L3_TRAIN_SPEED_MID * (0.3 + rng() * 0.2), { windows: true }),
+      this.makeTrain(rng() * vw, 280, 6, 50, 22, 3, 0x0a2a40, 'neon', 0.4, 0.1, L3_TRAIN_SPEED_MID * (0.3 + rng() * 0.2), {}),
+      this.makeTrain(rng() * vw, 380, 6, 50, 22, 3, 0x0a2a40, 'neon', 0.4, 0.1, L3_TRAIN_SPEED_MID * (0.3 + rng() * 0.2), {}),
+    ];
+    this.midTrains = [
+      this.makeTrain(rng() * vw, 220, 6, 70, 28, 3, 0x0d3550, 0x33ddff, 0.6, 0.2, 1.2 + rng() * 0.6, { blur: 24, blurAlpha: 0.12 }),
+      this.makeTrain(rng() * vw, 380, 6, 70, 28, 3, 0x0d3550, 0x33ddff, 0.6, 0.2, 1.2 + rng() * 0.6, { accent: true, blur: 24, blurAlpha: 0.12 }),
+      this.makeTrain(rng() * vw, 300, 6, 70, 28, 3, 0x0d3550, 0x33ddff, 0.6, 0.2, 1.2 + rng() * 0.6, { blur: 24, blurAlpha: 0.12 }),
+    ];
+    this.nearTrains = [
+      this.makeTrain(rng() * vw, 160, 6, 90, 34, 3, 0x102040, 0x55ffff, 0.8, 0.4, L3_TRAIN_SPEED_NEAR * (0.9 + rng() * 0.3), { blur: 40, blurAlpha: 0.20, near: true }),
+      this.makeTrain(rng() * vw, 440, 6, 90, 34, 3, 0x102040, 0x55ffff, 0.8, 0.4, L3_TRAIN_SPEED_NEAR * (0.9 + rng() * 0.3), { blur: 40, blurAlpha: 0.20, near: true }),
+    ];
+    this.sweepT = 0; // near-train light-sweep timer (ms)
+
+    // Rail lines (design-space Y).
+    this.railYs = [200, 300, 380, 460];
+
+    // Signal light columns (12; cycle green -> amber -> red on staggered timers).
+    this.SIG_COLORS = [0x33ff88, 0xffaa00, 0xff3333];
+    this.signals = [];
+    for (let i = 0; i < 12; i++) {
+      const s = { x: (i + 0.5) * (this.BG_BAND / 12), ci: Math.floor(rng() * 3) };
+      this.signals.push(s);
+      this.time.addEvent({ delay: 2000 + rng() * 2000, loop: true, callback: () => { s.ci = (s.ci + 1) % 3; } });
+    }
+
+    // Atmospheric particles (drift in screen space; pre-allocated).
+    const PCOLORS = [0x22eeff, 0x88ffff, 0xffffff, 0x0088cc];
+    this.bgParticles = [];
+    for (let i = 0; i < 30; i++) {
+      this.bgParticles.push({
+        x: rng() * vw, y: rng() * vh,
+        vx: 0.2 + rng() * 0.4, vy: 0.05 + rng() * 0.05,
+        color: PCOLORS[Math.floor(rng() * PCOLORS.length)],
+        alpha: 0.2 + rng() * 0.3, size: 1 + Math.round(rng()),
+      });
     }
   }
 
-  // One train: a screen-fixed (scrollFactor 0) container of cars (+ neon top
-  // edge, + optional trailing motion-blur rect).
-  buildTrain(x, y, cars, cw, ch, fill, edge, edgeAlpha, depth, speed, blur) {
-    const parts = [];
-    const totalW = cars * (cw + 2);
-    if (blur) parts.push(this.add.rectangle(totalW + 10, ch / 2, 20, ch, fill, 0.15).setOrigin(0, 0.5));
-    for (let c = 0; c < cars; c++) {
-      const lx = c * (cw + 2);
-      parts.push(this.add.rectangle(lx, 0, cw, ch, fill, 0.9).setOrigin(0, 0.5));
-      parts.push(this.add.rectangle(lx, -ch / 2 + 1, cw, 2, edge, edgeAlpha).setOrigin(0, 0.5));
+  // Train descriptor (drawn fresh each frame; no GameObjects). edge 'neon' reads
+  // the (shifting) palette neon; a number is a fixed colour.
+  makeTrain(x, y600, cars, cw, ch, gap, body, edge, edgeAlpha, factor, speed, opts = {}) {
+    return {
+      x, y600, cars, cw, ch, gap, body, edge, edgeAlpha, factor, speed,
+      width: cars * (cw + gap),
+      windows: !!opts.windows, accent: !!opts.accent,
+      blur: opts.blur || 0, blurAlpha: opts.blurAlpha || 0, near: !!opts.near,
+    };
+  }
+
+  // Draw + advance one train into Graphics g. Drifts left; wraps via modulo so
+  // it tiles across the parallax layer regardless of camera scroll.
+  drawTrain(g, tr, sx, sf, vw, step) {
+    tr.x -= tr.speed * step; // drift left in px/frame
+    const period = vw + tr.width + 80;
+    let dx = (tr.x - sx * tr.factor) % period;
+    if (dx < 0) dx += period;
+    dx -= tr.width; // visible range [-width, vw+80]
+    const y = tr.y600 * sf;
+    const ch = tr.ch * sf;
+    const top = y - ch / 2;
+    const bot = y + ch / 2;
+    const cw = tr.cw;
+    const edgeC = tr.edge === 'neon' ? this.bgPalette.neon : tr.edge;
+    const winC = tr.windows ? this.bgPalette.accent : edgeC;
+    const winA = tr.windows ? 0.45 : 0.3;
+    const DARK = 0x05101c; // underframe / wheels / couplers
+
+    if (tr.blur) { // motion-blur trail (behind = to the right, since moving left)
+      g.fillStyle(tr.body, tr.blurAlpha);
+      g.fillRect(dx + tr.width, top, tr.blur, ch);
     }
-    const train = this.add.container(x, y, parts).setScrollFactor(0).setDepth(depth);
-    train.trainSpeed = speed;
-    train.trainWidth = totalW + 24;
-    return train;
+
+    for (let c = 0; c < tr.cars; c++) {
+      const cx0 = dx + c * (cw + tr.gap);
+      if (cx0 > vw + 40 || cx0 + cw < -40) continue;
+      const isFront = c === 0; // leading car (the train moves left)
+
+      // Car body + neon roof strip.
+      g.fillStyle(tr.body, 0.92); g.fillRect(cx0, top, cw, ch);
+      g.fillStyle(edgeC, tr.edgeAlpha); g.fillRect(cx0, top, cw, Math.max(2, 2 * sf));
+
+      // Lit window row (the lead car keeps its front clear for the cab).
+      const wy = top + ch * 0.26;
+      const wh = ch * 0.30;
+      g.fillStyle(winC, winA);
+      for (let wx = (isFront ? cw * 0.42 : cw * 0.12); wx < cw - 6; wx += 12) {
+        g.fillRect(cx0 + wx, wy, 7, wh);
+      }
+
+      // Underframe skirt + a warm cargo stripe on accent cars.
+      g.fillStyle(DARK, 0.9); g.fillRect(cx0, bot - ch * 0.16, cw, ch * 0.16);
+      if (tr.accent && c % 3 === 1) { g.fillStyle(0xff6600, 0.3); g.fillRect(cx0, bot - ch * 0.16, cw, 3); }
+
+      // Bogies (two wheel blocks beneath the car).
+      const wheelH = Math.max(2, ch * 0.12);
+      g.fillStyle(DARK, 1);
+      g.fillRect(cx0 + cw * 0.18, bot - 1, cw * 0.18, wheelH);
+      g.fillRect(cx0 + cw * 0.64, bot - 1, cw * 0.18, wheelH);
+
+      // Coupler nub to the next car.
+      if (c < tr.cars - 1) { g.fillStyle(DARK, 1); g.fillRect(cx0 + cw, y - 1.5, tr.gap, 3); }
+
+      // Lead car: solid cab face + headlight at the nose.
+      if (isFront) {
+        g.fillStyle(tr.body, 1); g.fillRect(cx0, top + ch * 0.1, cw * 0.34, ch * 0.9);
+        g.fillStyle(0xffffcc, 0.9); g.fillRect(cx0 + 2, y, 4, Math.max(3, ch * 0.18));
+      }
+
+      // Pantograph (overhead power arm) on the second car's roof.
+      if (c === 1) {
+        const px = cx0 + cw * 0.5; const pTop = top - ch * 0.45;
+        g.lineStyle(Math.max(1, 1.2 * sf), edgeC, 0.7);
+        g.lineBetween(px - cw * 0.12, top, px, pTop);
+        g.lineBetween(px + cw * 0.12, top, px, pTop);
+        g.lineBetween(px - cw * 0.16, pTop, px + cw * 0.16, pTop); // contact bar
+      }
+    }
+
+    // Near trains flash a wide light sweep as they cross mid-screen.
+    if (tr.near) {
+      const centre = dx + tr.width / 2;
+      if (centre > vw * 0.4 && centre < vw * 0.6) this.sweepT = Math.max(this.sweepT, 300);
+    }
   }
 
   updateBackground(delta) {
     const vw = this.scale.width;
     const vh = this.scale.height;
+    const sf = vh / 600;                 // 600-design-space -> viewport height
+    const sx = this.cameras.main.scrollX;
+    const sy = this.cameras.main.scrollY;
+    const step = delta / 16.67;          // ~per-frame units at 60fps
+    const pal = this.bgPalette;
+    const band = this.BG_BAND;
 
-    // Far buildings: clear + redraw, anchored to the screen bottom, slow scroll.
-    const g = this.bgFar;
-    g.clear();
-    g.fillStyle(0x071a2e, 1);
-    const off = (this.cameras.main.scrollX * 0.1) % this.farPatternW;
-    for (let base = -this.farPatternW; base < vw + this.farPatternW; base += this.farPatternW) {
-      for (const b of this.farBuildings) {
-        const x = base - off + b.x;
-        if (x > vw || x + b.w < 0) continue;
-        g.fillRect(x, vh - b.h, b.w, b.h);
+    // --- Sky gradient (static; bottom band reads the shifting palette) ---
+    const sky = this.gSky; sky.clear();
+    sky.fillStyle(0x020810, 1); sky.fillRect(0, 0, vw, vh * 0.34);
+    sky.fillStyle(0x041428, 1); sky.fillRect(0, vh * 0.34, vw, vh * 0.33);
+    sky.fillStyle(pal.skyBottom, 1); sky.fillRect(0, vh * 0.67, vw, vh * 0.34);
+
+    // --- Moon (behind the skyline) + dynamic moonlight ---
+    const moonX = vw * 0.80;
+    const moonY = vh * 0.20;
+    const mPulse = 0.88 + 0.12 * Math.sin(this.time.now / 1600);
+    const moon = this.gMoon; moon.clear();
+    moon.fillStyle(0x88ccff, 0.05 * mPulse); moon.fillCircle(moonX, moonY, 96);
+    moon.fillStyle(0x88ccff, 0.09 * mPulse); moon.fillCircle(moonX, moonY, 62);
+    moon.fillStyle(0xaad8ff, 0.20 * mPulse); moon.fillCircle(moonX, moonY, 42);
+    moon.fillStyle(0xddf0ff, 0.95); moon.fillCircle(moonX, moonY, 26);            // core
+    moon.fillStyle(0xbfe0ff, 0.5); moon.fillCircle(moonX - 8, moonY - 6, 5);      // craters
+    moon.fillStyle(0xbfe0ff, 0.5); moon.fillCircle(moonX + 7, moonY + 8, 4);
+    // Moonlight tracks the moon's world position (screen pos + camera scroll).
+    this.moonLight.x = sx + moonX;
+    this.moonLight.y = sy + moonY;
+    this.moonLight.setIntensity(0.85 + 0.25 * Math.sin(this.time.now / 1600));
+
+    // --- Distant glow columns (factor 0.08) ---
+    const glow = this.gGlow; glow.clear();
+    const glowOff = (sx * 0.08) % band;
+    for (let base = -band; base < vw; base += band) {
+      for (const c of this.glowCols) {
+        const x = base - glowOff + c.x;
+        if (x > vw || x + 60 < 0) continue;
+        glow.fillStyle(pal.neon, c.alpha); glow.fillRect(x, 0, 60, vh);
       }
     }
 
-    // Trains drift left across the screen and wrap to the right edge.
-    const step = delta / 16.67; // ~per-frame units at 60fps
-    const drift = (t) => {
-      t.x -= t.trainSpeed * step;
-      if (t.x < -t.trainWidth) t.x = vw + t.trainWidth;
-    };
-    this.midTrains.forEach(drift);
-    this.nearTrains.forEach(drift);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Foreground rails (world-space) + blinking signal lights every 600px.
-  // ---------------------------------------------------------------------------
-  buildRails() {
-    RAILS.forEach(([x1, x2, y]) => {
-      const w = x2 - x1;
-      const cx = x1 + w / 2;
-      this.add.rectangle(cx, y, w, 8, 0x0a3a5a, 1).setDepth(-0.4);
-      this.add.rectangle(cx, y - 5, w, 2, P.PLATFORM, 0.6).setDepth(-0.35); // neon top edge
-    });
-    // Signal lights along the long service rail (y2900), every 600px.
-    for (let x = 300; x < W; x += 600) {
-      const s = this.add.rectangle(x, 2876, 12, 20, 0x33ff88, 0.9).setDepth(-0.3);
-      this.signals.push(s);
+    // --- City silhouette (factor 0.05) + rooftop lights ---
+    const city = this.gCity; city.clear();
+    const cityOff = (sx * 0.05) % band;
+    for (let base = -band; base < vw; base += band) {
+      for (const b of this.buildings) {
+        const x = base - cityOff + b.x;
+        if (x > vw || x + b.w < 0) continue;
+        const bh = b.h * sf;
+        city.fillStyle(b.color, 1); city.fillRect(x, vh - bh, b.w, bh);
+        if (b.lit) {
+          city.fillStyle(b.blue ? pal.neon : 0xff4444, 0.9);
+          city.fillRect(x + b.w / 2 - 2, vh - bh - 6, 4, 4);
+        }
+      }
     }
-    // One shared 2s timer flips every signal red <-> green.
-    this.signalGreen = true;
-    this.time.addEvent({
-      delay: 2000,
-      loop: true,
-      callback: () => {
-        this.signalGreen = !this.signalGreen;
-        const col = this.signalGreen ? 0x33ff88 : 0xff4444;
-        this.signals.forEach((s) => s.setFillStyle(col, 0.9));
-      },
-    });
+
+    // --- Rail lines (full-width bands at design Ys) ---
+    const rails = this.gRails; rails.clear();
+    for (const ry of this.railYs) {
+      const y = ry * sf;
+      rails.fillStyle(0x0d3050, 1); rails.fillRect(0, y, vw, 2);
+      rails.fillStyle(pal.neon, 0.3); rails.fillRect(0, y - 1, vw, 1);
+    }
+
+    // --- Signal light columns (factor 0.15) ---
+    const sig = this.gSignals; sig.clear();
+    const sigOff = (sx * 0.15) % band;
+    const postH = 60 * sf; const baseY = vh * 0.55;
+    for (let base = -band; base < vw; base += band) {
+      for (const s of this.signals) {
+        const x = base - sigOff + s.x;
+        if (x > vw || x + 12 < 0) continue;
+        const col = this.SIG_COLORS[s.ci];
+        sig.fillStyle(0x071a2e, 1); sig.fillRect(x, baseY - postH, 3, postH);
+        sig.fillStyle(col, 0.15); sig.fillCircle(x + 5, baseY - postH - 7, 12);
+        sig.fillStyle(col, 0.9); sig.fillRect(x, baseY - postH - 14, 10, 14);
+      }
+    }
+
+    // --- Trains (deep -> mid -> near) ---
+    const gd = this.gDeep; gd.clear();
+    for (const tr of this.deepTrains) this.drawTrain(gd, tr, sx, sf, vw, step);
+    const gm = this.gMid; gm.clear();
+    for (const tr of this.midTrains) this.drawTrain(gm, tr, sx, sf, vw, step);
+    const gn = this.gNear; gn.clear();
+    for (const tr of this.nearTrains) this.drawTrain(gn, tr, sx, sf, vw, step);
+    // Near-train light sweep washes across the full width, fading over 0.3s.
+    if (this.sweepT > 0) {
+      this.sweepT -= delta;
+      gn.fillStyle(pal.neon, 0.06 * Math.max(0, this.sweepT / 300));
+      gn.fillRect(0, 0, vw, vh);
+    }
+
+    // --- Atmospheric particles (screen-space drift + wrap) ---
+    const gp = this.gParticles; gp.clear();
+    for (const p of this.bgParticles) {
+      p.x -= p.vx * step; p.y += p.vy * step;
+      if (p.x < -2) { p.x = vw + 2; p.y = Math.random() * vh; }
+      if (p.y > vh + 2) p.y = -2;
+      gp.fillStyle(p.color, p.alpha); gp.fillRect(p.x, p.y, p.size, p.size);
+    }
   }
 
   // Static platform: layered visual + static body + Light2D.
@@ -492,14 +662,30 @@ export default class Level3 extends Phaser.Scene {
     this.tweens.add({ targets: card, alpha: 1, duration: 400, hold: 4000, yoyo: true, onComplete: () => card.destroy() });
   }
 
-  // ---- Mid-level palette shift (x > 8000): cooler/brighter blue over 3s ------
+  // ---- Mid-level palette shift (x > 8000): tween the shared background palette
+  // over 3s. Every layer reads bgPalette when it draws, so neon (#22eeff ->
+  // #00ddff), accent (#88ffff -> #aaffff) and the sky bottom (#030d18 ->
+  // #041e30) all drift together. ----
   triggerPaletteShift() {
     if (this.paletteShifted) return;
     this.paletteShifted = true;
-    this.tweens.add({ targets: this.blueCast, alpha: 0.12, duration: L3_PALETTE_SHIFT_DURATION, ease: 'Sine.easeInOut' });
-    if (this.colorGrade) {
-      this.tweens.add({ targets: this.colorGrade, uMidtoneTint: this.colorGrade.uMidtoneTint + 0.6, duration: L3_PALETTE_SHIFT_DURATION, ease: 'Sine.easeInOut' });
-    }
+    const from = { neon: 0x22eeff, accent: 0x88ffff, sky: 0x030d18 };
+    const to = { neon: 0x00ddff, accent: 0xaaffff, sky: 0x041e30 };
+    const lerp = (a, b, tt) => {
+      const c = Phaser.Display.Color.Interpolate.ColorWithColor(
+        Phaser.Display.Color.IntegerToColor(a), Phaser.Display.Color.IntegerToColor(b), 100, tt * 100,
+      );
+      return Phaser.Display.Color.GetColor(c.r, c.g, c.b);
+    };
+    this.tweens.addCounter({
+      from: 0, to: 1, duration: L3_PALETTE_SHIFT_DURATION, ease: 'Sine.easeInOut',
+      onUpdate: (tw) => {
+        const v = tw.getValue();
+        this.bgPalette.neon = lerp(from.neon, to.neon, v);
+        this.bgPalette.accent = lerp(from.accent, to.accent, v);
+        this.bgPalette.skyBottom = lerp(from.sky, to.sky, v);
+      },
+    });
   }
 
   // ---- Camera-effect helpers (copied from L2) -------------------------------
