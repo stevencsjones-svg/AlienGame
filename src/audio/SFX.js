@@ -223,6 +223,34 @@ class SFX {
     this._retire(synth, 600);
   }
 
+  // Proximity-mine arming: a rising sine 200 -> 800 Hz over 1.2s.
+  mineArm() {
+    if (!this._live()) return;
+    const osc = new Tone.Oscillator({ type: 'sine', frequency: 200 }).toDestination();
+    osc.volume.value = -18;
+    osc.start();
+    osc.frequency.rampTo(800, 1.2);
+    setTimeout(() => { try { osc.stop(); } catch (e) { /* noop */ } }, 1200);
+    this._retire(osc, 1500);
+  }
+
+  // Proximity-mine detonation: noise burst + low thud.
+  mineBoom() {
+    if (!this._live()) return;
+    const noise = new Tone.NoiseSynth({
+      noise: { type: 'white' }, envelope: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.05 },
+    }).toDestination();
+    noise.volume.value = -10;
+    this._t(noise, '8n');
+    this._retire(noise, 700);
+    const thud = new Tone.MembraneSynth({
+      pitchDecay: 0.06, octaves: 4, envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 },
+    }).toDestination();
+    thud.volume.value = -8;
+    this._t(thud, 'C1', '8n');
+    this._retire(thud, 800);
+  }
+
   // Continuous ambient hum for the exit portal. Returns a handle with stop().
   portalHum() {
     if (!this._live()) return { stop() {} };

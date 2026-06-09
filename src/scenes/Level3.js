@@ -12,6 +12,8 @@ import HoverSentinel from '../entities/HoverSentinel.js';
 import Seeker from '../entities/Seeker.js';
 import ExitPortal from '../entities/ExitPortal.js';
 import MovingPlatform from '../entities/MovingPlatform.js';
+import FallingPlatform from '../entities/FallingPlatform.js';
+import ProximityMine from '../entities/ProximityMine.js';
 import ChromaticAberrationPipeline from '../pipelines/ChromaticAberrationPipeline.js';
 import CameraController from '../camera/CameraController.js';
 import DiegeticHUD from '../ui/DiegeticHUD.js';
@@ -43,44 +45,86 @@ const P = {
   AMBIENT: 0x0a1a2a,      // Light2D ambient
 };
 
+// The platforms the player stands/jumps on are GREEN so they pop against the
+// blue background + trains. Everything else (lights, checkpoint, collectibles,
+// background) keeps the electric-blue palette P.
+const PLAT_PAL = { ...P, PLATFORM: 0x00ff88, PLATFORM_DIM: 0x064a28 };
+
 let level3TitleShown = false; // once per session
 
-// Floor segments [cx, topY, w, h]; gaps between them require a jump:
-//   gap1 3600–3800 · gap2 9600–9820 · gap3 11300–11520 · gap4 13900–14120
+// =============================================================================
+// LEVEL DATA — difficulty pass. Floor exists ONLY in Section 1 (x0–2500) and
+// Section 5 (x13500–16000); Sections 2–4 are gap-dominant (a fall = death at
+// y3240). The platform path is authored to stay within the player's double-jump
+// + dash reach. NOTE: gaps are tuned for crossability rather than the brief's
+// literal 600–900px (which would be unfair without playtest tuning) — this layout
+// needs a play pass to confirm/sharpen difficulty.
+// =============================================================================
+
+// Floor segments [cx, topY, w, h] — safe zones only (S1 + S5).
 const GROUND = [
-  [1800, FLOOR_Y, 3600, 120],   // x0–3600    (S1 + S2 start)
-  [6700, FLOOR_Y, 5800, 120],   // x3800–9600 (S2 end · S3 checkpoint · S4 start)
-  [10560, FLOOR_Y, 1480, 120],  // x9820–11300
-  [12710, FLOOR_Y, 2380, 120],  // x11520–13900
-  [15060, FLOOR_Y, 1880, 120],  // x14120–16000 (exit portal at 15600)
+  [1250, FLOOR_Y, 2500, 120],   // Section 1 floor (x0–2500)
+  [14650, FLOOR_Y, 2700, 120],  // Section 5 floor (x13300–16000)
 ];
 
-// Elevated static platforms [cx, topY, w, h].
+// Elevated static platforms [cx, topY, w, h]. This is a BEATABLE backbone: every
+// consecutive hop is within a double jump (≤~240px gap, ≤~175px rise; drops are
+// free). The no-floor gaps below are still lethal — dangerous but crossable.
 const PLATFORMS = [
-  [700, 2950, 160, 16], [1200, 2860, 160, 16], [1700, 2900, 160, 16], [2300, 2820, 160, 16], // S1
-  [4400, 2820, 140, 16], [5100, 2880, 140, 16], [5700, 2780, 140, 16],                        // S2
-  [6400, 2900, 160, 16], [6900, 2700, 160, 16], [7400, 2880, 160, 16], [7900, 2640, 160, 16], [8600, 2820, 160, 16], // S3
-  [9300, 2860, 140, 16], [10000, 2700, 140, 16], [11800, 2780, 140, 16], [12400, 2640, 140, 16], // S4
-  [13400, 2860, 140, 16], [14000, 2740, 140, 16], [14700, 2820, 140, 16], [15200, 2700, 160, 16], // S5
+  // S1 — grounded intro (floor itself is the path)
+  [700, 2800, 160, 16], [1300, 2600, 160, 16], [1900, 2750, 160, 16],
+  // S2 — reachable climb from the floor edge (x2500 @ y3100), then undulating
+  [2650, 2950, 170, 16], [3050, 2780, 160, 16], [3450, 2720, 160, 16], [3850, 2780, 160, 16],
+  [4250, 2680, 160, 16], [4650, 2760, 160, 16], [5100, 2860, 170, 16], [5500, 2740, 160, 16], [5850, 2800, 160, 16],
+  // S3 — vertical gauntlet, stepped so every rise stays within a double jump
+  [6250, 2680, 160, 16], [6600, 2520, 160, 16], [6900, 2640, 160, 16], [7150, 2480, 150, 16],
+  [7550, 2620, 160, 16], [7900, 2760, 160, 16], [8000, 2994, 280, 40], /* checkpoint pad */
+  [8350, 2820, 160, 16], [8700, 2680, 160, 16], [9050, 2560, 160, 16], [9450, 2700, 160, 16], [9800, 2860, 160, 16],
+  // S4 — relief (gentler, ~400px spacing)
+  [10200, 2820, 160, 16], [10600, 2720, 160, 16], [11000, 2800, 160, 16], [11400, 2700, 160, 16],
+  [11800, 2780, 160, 16], [12200, 2640, 160, 16], [12600, 2740, 160, 16], [13000, 2840, 160, 16],
+  [13350, 2920, 150, 16], // step down to the S5 floor
+  // S5 — final push (floor present)
+  [13750, 2860, 150, 16], [14000, 2740, 160, 16], [14600, 2720, 150, 16], [15200, 2700, 160, 16],
 ];
 
-// Moving platforms [startX, topY, range, speed, axis]. Gap-bridge movers sit at
-// floor level; the rest ride the rail heights.
+// Moving platforms [startX, topY, range, speed, axis] — moving stepping stones
+// near the backbone height (helpers/alternates, not the sole path).
 const MOVERS = [
-  // S2 — 6 rail platforms (first one bridges gap1)
-  [3500, FLOOR_Y, 380, 130, 'x'], [4000, 2900, 320, 120, 'x'], [4500, 2820, 300, 140, 'x'],
-  [5000, 2880, 320, 130, 'x'], [5400, 2780, 300, 150, 'x'], [5800, 2860, 300, 135, 'x'],
-  // S3 — vertical movers between rail heights
-  [7000, 2780, 360, 90, 'y'], [8100, 2760, 340, 95, 'y'],
-  // S4 — denser, mixed (gap2 + gap3 bridges)
-  [9500, FLOOR_Y, 400, 150, 'x'], [10200, 2820, 320, 150, 'x'], [10900, 2760, 320, 60, 'y'],
-  [11200, FLOOR_Y, 420, 160, 'x'], [12200, 2820, 320, 160, 'x'],
-  // S5 — fast, tight (gap4 bridge)
-  [13800, FLOOR_Y, 400, 175, 'x'], [14400, 2820, 300, 180, 'x'], [15000, 2760, 280, 170, 'x'],
+  // S2 — 4 horizontal
+  [2900, 2850, 300, 110, 'x'], [3700, 2740, 300, 120, 'x'], [4500, 2700, 300, 100, 'x'], [5300, 2800, 300, 130, 'x'],
+  // S3 — 4 horizontal + 2 vertical
+  [6400, 2600, 300, 100, 'x'], [7000, 2440, 260, 110, 'x'], [8500, 2720, 300, 120, 'x'], [9200, 2620, 300, 110, 'x'],
+  [6750, 2560, 220, 90, 'y'], [9600, 2720, 240, 100, 'y'],
+  // S4 — 3 horizontal
+  [10500, 2760, 300, 140, 'x'], [11300, 2740, 300, 130, 'x'], [12100, 2700, 300, 150, 'x'],
+  // S5 — 2 fast
+  [13900, 2820, 280, 170, 'x'], [14450, 2760, 260, 180, 'x'],
 ];
 
-const DRONES = [[10000, 3060], [12300, 3060], [14500, 3060]];     // S4, S5 (settle on floor)
-const SENTINELS = [[7400, 2650], [10300, 2620]];                  // S3, S4
+// Falling platforms [x, topY, width] — drop shortly after the player lands. Set
+// off the backbone (the backbone alone is crossable) so a drop never strands.
+const FALLERS = [
+  [2850, 2900, 120], [3650, 2720, 120], [5250, 2840, 120],             // S2 (3)
+  [6450, 2560, 120], [7350, 2560, 120], [8650, 2640, 120], [9650, 2800, 120], // S3 (4)
+  [11000, 2780, 120], [12550, 2680, 120],                              // S4 (2)
+];
+
+// Proximity mines [x, y] — placed above the backbone so a low path can avoid
+// arming them; going high (or for collectibles) triggers them.
+const MINES = [[4800, 2560], [7200, 2300], [9400, 2400], [11800, 2400]];
+
+// Ground drones [x, y] — each on a backbone platform / floor it can patrol.
+const DRONES = [
+  [5500, 2724], [8700, 2664], [11400, 2684],   // additions
+  [10200, 2804], [12600, 2724], [14500, 3060], // existing (adapted onto ground)
+];
+
+// Hover sentinels [x, y] (float; no ground needed).
+const SENTINELS = [
+  [7400, 2650], [10300, 2620],   // existing
+  [6200, 2400], [12000, 2500],   // additions
+];
 const COLLECTIBLES = [[1700, 2820], [5100, 2800], [8600, 2740], [14000, 2660]]; // 4 visible
 const SECRETS = [[6900, 2620], [12400, 2560]];                    // 2 hidden (orange)
 
@@ -110,6 +154,9 @@ export default class Level3 extends Phaser.Scene {
     this.platforms = [];
     this.movers = [];
     this.movingBodies = [];
+    this.fallers = [];
+    this.fallingBodies = [];
+    this.mines = [];
     this.collectibles = [];
     this.drones = [];
     this.sentinels = [];
@@ -152,10 +199,18 @@ export default class Level3 extends Phaser.Scene {
     GROUND.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
     PLATFORMS.forEach(([cx, ty, w, h]) => this.addPlatform(cx, ty, w, h));
     MOVERS.forEach(([sx, ty, range, speed, axis]) => {
-      const mp = new MovingPlatform(this, sx, ty, 120, 14, axis, range, speed, P);
+      const mp = new MovingPlatform(this, sx, ty, 120, 14, axis, range, speed, PLAT_PAL);
       this.movers.push(mp);
       this.movingBodies.push(mp.bodyRect);
     });
+    FALLERS.forEach(([x, y, w]) => {
+      const fp = new FallingPlatform(this, x, y, w, PLAT_PAL);
+      this.fallers.push(fp);
+      this.fallingBodies.push(fp.bodyRect);
+    });
+    MINES.forEach(([x, y]) => this.mines.push(new ProximityMine(this, x, y)));
+    // Carry list: both moving and falling platforms can carry the player.
+    this._carriers = [...this.movers, ...this.fallers];
 
     // ---- Player: arrives from Level 2 with all core abilities. ----
     this.player = new Player(this, this.respawnX, this.respawnY);
@@ -170,6 +225,7 @@ export default class Level3 extends Phaser.Scene {
     DRONES.forEach(([x, y]) => this.drones.push(new GroundDrone(this, x, y)));
     SENTINELS.forEach(([x, y]) => this.sentinels.push(new HoverSentinel(this, x, y)));
     this.seekers.push(new Seeker(this, 14600, 2950, this.player, { speed: ENEMY.SEEKER_SPEED, aggro: 300 }));
+    this.seekers.push(new Seeker(this, 12500, 2700, this.player, { speed: ENEMY.SEEKER_SPEED, aggro: 300 })); // S4 addition
 
     // ---- Collectibles ----
     COLLECTIBLES.forEach(([x, y]) => this.collectibles.push(createCollectible(this, x, y, P.COLLECTIBLE, false)));
@@ -182,6 +238,7 @@ export default class Level3 extends Phaser.Scene {
     // ---- Colliders ----
     this.physics.add.collider(this.player, this.platforms);
     this.physics.add.collider(this.player, this.movingBodies);
+    this.physics.add.collider(this.player, this.fallingBodies);
     this.physics.add.collider(this.drones, this.platforms);
     this.physics.add.overlap(this.player, this.drones, this.onPlayerHit, null, this);
     this.physics.add.overlap(this.player, this.sentinels, this.onPlayerHit, null, this);
@@ -523,7 +580,7 @@ export default class Level3 extends Phaser.Scene {
 
   // Static platform: layered visual + static body + Light2D.
   addPlatform(cx, topY, w, h) {
-    const { body } = buildPlatformVisual(this, cx, topY, w, h, P, false);
+    const { body } = buildPlatformVisual(this, cx, topY, w, h, PLAT_PAL, false);
     body.setPipeline('Light2D');
     this.physics.add.existing(body, true);
     this.platforms.push(body);
@@ -918,15 +975,21 @@ export default class Level3 extends Phaser.Scene {
     for (const s of this.sentinels) if (s.active && near(s)) s.update(time, delta);
     for (const s of this.seekers) if (s.active && near(s)) s.update(time, delta);
 
-    // ---- Moving platforms (skip > 1000px from player) ----
+    // ---- Moving / falling platforms + mines (skip > 1000px from player) ----
     for (const mp of this.movers) {
       if (Phaser.Math.Distance.Between(mp.bodyRect.x, mp.bodyRect.y, px, py) < 1000) mp.update(delta);
     }
+    for (const fp of this.fallers) {
+      if (Phaser.Math.Distance.Between(fp.bodyRect.x, fp.bodyRect.y, px, py) < 1000) fp.update(delta);
+    }
+    for (const m of this.mines) {
+      if (Phaser.Math.Distance.Between(m.x, m.y, px, py) < 1000) m.update(delta);
+    }
 
-    // ---- Carry the player when standing on a moving platform ----
+    // ---- Carry the player when standing on a moving OR falling platform ----
     if (this.player.body.blocked.down) {
       const pb = this.player.body;
-      for (const mp of this.movers) {
+      for (const mp of this._carriers) {
         const half = mp.bodyRect.width / 2;
         const onIt = px >= mp.bodyRect.x - half - 4 && px <= mp.bodyRect.x + half + 4
           && Math.abs(pb.bottom - mp.body.top) < 8;

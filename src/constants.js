@@ -432,3 +432,12 @@ export const L3_PALETTE_SHIFT_X = 8000;
 export const L3_PALETTE_SHIFT_DURATION = 3000;
 export const L3_TRAIN_SPEED_MID = 1.0;
 export const L3_TRAIN_SPEED_NEAR = 2.4;
+
+// ---- Level 3 hazards: falling platforms + proximity mines --------------------
+export const FALLING_PLATFORM_SHAKE_MS = 800;
+export const FALLING_PLATFORM_FALL_ALPHA_MS = 600;
+export const FALLING_PLATFORM_RESET_DELAY_MS = 4000;
+export const PROXIMITY_MINE_DETECT_RADIUS = 120;
+export const PROXIMITY_MINE_ARM_MS = 1200;
+export const PROXIMITY_MINE_BLAST_RADIUS = 180;
+export const PROXIMITY_MINE_RESPAWN_MS = 5000;
