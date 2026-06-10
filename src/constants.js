@@ -433,6 +433,45 @@ export const L3_PALETTE_SHIFT_DURATION = 3000;
 export const L3_TRAIN_SPEED_MID = 1.0;
 export const L3_TRAIN_SPEED_NEAR = 2.4;
 
+// ---- Level 4: Market Towers (Deep Blue #3366ff base, raised luminance) -------
+// All Level 4 background colours live here (the scene uses no inline hex).
+export const LEVEL4_PALETTE = {
+  BG: 0x0a1a3e,            // base fill (brighter than L1–L3 darks)
+  AMBIENT: 0x1c2f60,
+  HAZE: 0x3a5fb0,          // bright blue haze gradient
+  HAZE_HI: 0x5a82d8,       // brighter haze band
+  // Parallax tower fills (back -> front, deep-blue family, rising luminance)
+  TOWER_FAR: 0x16294f,
+  TOWER_MID: 0x1f3a72,
+  TOWER_NEAR: 0x274a92,
+  TOWER_EDGE: 0x4f7fe0,    // lit tower top edge
+  // Lit windows
+  WINDOW_COOL: 0x8fcfff,
+  WINDOW_WARM: 0xffd9a0,
+  WINDOW_OFF: 0x0e1c3a,
+  // Neon accents (used sparingly so blue still dominates)
+  NEON_BLUE: 0x4c8cff,
+  NEON_CYAN: 0x55ffff,
+  NEON_WARM: 0xfff0c0,
+  NEON_PINK: 0xff66bb,
+  // Vendor stalls / props
+  VENDOR_BODY: 0x0f1f40,
+  CANOPY: 0x2a55b0,
+  CANOPY_STRIPE: 0x3366ff, // AES-006 deep blue
+  LAMP_GLOW: 0xffcc66,
+  GOODS: 0xbf8a5a,
+  PANCAKE: 0xe8b878,
+  CABLE: 0x0b1730,
+  LANTERN: 0xff8855,
+  JUNCTION: 0x1a2c55,
+  BIRD: 0x12244a,
+  // Gameplay platforms (kept bright + contrasting for readability)
+  PLATFORM: 0x9fd0ff,
+  PLATFORM_DIM: 0x16315e,
+  ACCENT: 0xffd9a0,
+  WHITE: 0xffffff,
+};
+
 // ---- Level 3 hazards: falling platforms + proximity mines --------------------
 export const FALLING_PLATFORM_SHAKE_MS = 800;
 export const FALLING_PLATFORM_FALL_ALPHA_MS = 600;
