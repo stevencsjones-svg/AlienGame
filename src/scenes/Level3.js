@@ -331,13 +331,22 @@ export default class Level3 extends Phaser.Scene {
     this.glowCols = [];
     for (let i = 0; i < 4; i++) this.glowCols.push({ x: (i + 0.5) * (this.BG_BAND / 4), alpha: 0.03 + rng() * 0.02 });
 
-    // City silhouette (~40 buildings; every 5th gets a pulsing rooftop light).
+    // City silhouette (~40 buildings; every 5th gets a pulsing rooftop light;
+    // each carries a grid of lit windows — some warm, some cool, a few flicker).
     this.buildings = [];
     let bx = 0; let bi = 0;
     while (bx < this.BG_BAND && this.buildings.length < 40) {
       const bw = 30 + rng() * 70;
       const bh = 80 + rng() * 240;
-      const b = { x: bx, w: bw, h: bh, color: rng() < 0.5 ? 0x071a2e : 0x0a2040, lit: bi % 5 === 0, blue: false };
+      const b = { x: bx, w: bw, h: bh, color: rng() < 0.5 ? 0x071a2e : 0x0a2040, lit: bi % 5 === 0, blue: false, windows: [] };
+      const cols = Math.max(1, Math.floor((bw - 8) / 12));
+      const rows = Math.max(2, Math.floor((bh - 16) / 26));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (rng() < 0.45) continue; // ~55% of cells are lit
+          b.windows.push({ wx: 5 + c * 12, fy: (r + 0.5) / rows, warm: rng() < 0.25, flicker: rng() < 0.12, phase: rng() * 4000 });
+        }
+      }
       this.buildings.push(b);
       if (b.lit) this.time.addEvent({ delay: 3000 + rng() * 4000, loop: true, callback: () => { b.blue = !b.blue; } });
       bx += bw + 8 + rng() * 22; bi++;
@@ -383,6 +392,13 @@ export default class Level3 extends Phaser.Scene {
         alpha: 0.2 + rng() * 0.3, size: 1 + Math.round(rng()),
       });
     }
+
+    // Aeroplanes — occasional jets crossing the upper sky (pooled; screen-fixed,
+    // drawn in front of the distant city, behind the trains).
+    this.gPlanes = this.add.graphics().setScrollFactor(0).setDepth(-9.9);
+    this.planes = [];
+    for (let i = 0; i < 3; i++) this.planes.push({ active: false, x: 0, y: 0, vx: 0, dir: 1, len: 26, blinkT: 0, blinkOn: true });
+    this.planeTimer = 3000 + rng() * 4000; // first fly-by fairly soon
   }
 
   // Train descriptor (drawn fresh each frame; no GameObjects). edge 'neon' reads
@@ -524,6 +540,12 @@ export default class Level3 extends Phaser.Scene {
         if (x > vw || x + b.w < 0) continue;
         const bh = b.h * sf;
         city.fillStyle(b.color, 1); city.fillRect(x, vh - bh, b.w, bh);
+        // Lit windows.
+        for (const wnd of b.windows) {
+          if (wnd.flicker && (Math.floor((this.time.now + wnd.phase) / 700) % 2) !== 0) continue;
+          city.fillStyle(wnd.warm ? 0xffcc66 : 0x9fe8ff, 0.55);
+          city.fillRect(x + wnd.wx, vh - bh + wnd.fy * (bh - 6) + 1, 3, 4);
+        }
         if (b.lit) {
           city.fillStyle(b.blue ? pal.neon : 0xff4444, 0.9);
           city.fillRect(x + b.w / 2 - 2, vh - bh - 6, 4, 4);
@@ -576,6 +598,57 @@ export default class Level3 extends Phaser.Scene {
       if (p.y > vh + 2) p.y = -2;
       gp.fillStyle(p.color, p.alpha); gp.fillRect(p.x, p.y, p.size, p.size);
     }
+
+    // --- Aeroplanes (occasional fly-bys across the upper sky) ---
+    this.updatePlanes(delta);
+  }
+
+  // Spawn (from the pool) the occasional jet, then move + draw any active ones.
+  updatePlanes(delta) {
+    const vw = this.scale.width;
+    const vh = this.scale.height;
+    const g = this.gPlanes; g.clear();
+
+    this.planeTimer -= delta;
+    if (this.planeTimer <= 0) {
+      this.planeTimer = 9000 + Math.random() * 11000; // next fly-by in ~9–20s
+      const p = this.planes.find((pl) => !pl.active);
+      if (p) {
+        p.active = true;
+        p.dir = Math.random() < 0.5 ? 1 : -1;
+        p.len = 22 + Math.random() * 14;
+        p.y = vh * (0.06 + Math.random() * 0.22); // upper sky
+        p.vx = (120 + Math.random() * 120) * p.dir; // px/s
+        p.x = p.dir > 0 ? -p.len - 70 : vw + p.len + 70;
+        p.blinkT = 0; p.blinkOn = true;
+      }
+    }
+
+    for (const p of this.planes) {
+      if (!p.active) continue;
+      p.x += p.vx * (delta / 1000);
+      p.blinkT += delta;
+      if (p.blinkT >= 480) { p.blinkT -= 480; p.blinkOn = !p.blinkOn; }
+      if ((p.dir > 0 && p.x > vw + p.len + 80) || (p.dir < 0 && p.x < -p.len - 80)) { p.active = false; continue; }
+      this.drawPlane(g, p);
+    }
+  }
+
+  // A small jet silhouette + contrail + blinking nav/strobe lights.
+  drawPlane(g, p) {
+    const d = p.dir; const len = p.len; const y = p.y; const cx = p.x;
+    const nose = cx + d * (len / 2);
+    const tail = cx - d * (len / 2);
+    g.fillStyle(0xaad8ff, 0.05); g.fillRect(Math.min(tail, tail - d * 80), y - 1.5, 80, 3); // contrail
+    g.fillStyle(0x163450, 0.95); g.fillRect(Math.min(tail, nose), y - 2, len, 4);            // fuselage
+    g.fillTriangle(nose, y - 2, nose, y + 2, nose + d * 7, y);                               // nose cone
+    g.fillStyle(0x0f2740, 0.95);
+    const mx = cx + d * 2;
+    g.fillTriangle(mx, y, mx - d * 16, y - 10, mx - d * 2, y + 1);                           // swept wings
+    g.fillTriangle(mx, y, mx - d * 16, y + 10, mx - d * 2, y - 1);
+    g.fillTriangle(tail, y, tail - d * 8, y - 9, tail - d * 1, y);                           // tail fin
+    if (p.blinkOn) { g.fillStyle(0xff4444, 0.95); g.fillCircle(tail - d * 1, y - 8, 1.8); }  // red nav light
+    else { g.fillStyle(0xffffff, 0.95); g.fillCircle(nose, y, 1.8); }                        // white strobe
   }
 
   // Static platform: layered visual + static body + Light2D.
