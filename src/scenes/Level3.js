@@ -359,13 +359,13 @@ export default class Level3 extends Phaser.Scene {
       this.makeTrain(rng() * vw, 380, 6, 50, 22, 3, 0x0a2a40, 'neon', 0.4, 0.1, L3_TRAIN_SPEED_MID * (0.3 + rng() * 0.2), {}),
     ];
     this.midTrains = [
-      this.makeTrain(rng() * vw, 220, 6, 70, 28, 3, 0x0d3550, 0x33ddff, 0.6, 0.2, 1.2 + rng() * 0.6, { blur: 24, blurAlpha: 0.12 }),
-      this.makeTrain(rng() * vw, 380, 6, 70, 28, 3, 0x0d3550, 0x33ddff, 0.6, 0.2, 1.2 + rng() * 0.6, { accent: true, blur: 24, blurAlpha: 0.12 }),
-      this.makeTrain(rng() * vw, 300, 6, 70, 28, 3, 0x0d3550, 0x33ddff, 0.6, 0.2, 1.2 + rng() * 0.6, { blur: 24, blurAlpha: 0.12 }),
+      this.makeTrain(rng() * vw, 220, 6, 70, 28, 3, 0x0d3550, 0x2a6a85, 0.35, 0.2, 1.2 + rng() * 0.6, { blur: 24, blurAlpha: 0.12 }),
+      this.makeTrain(rng() * vw, 380, 6, 70, 28, 3, 0x0d3550, 0x2a6a85, 0.35, 0.2, 1.2 + rng() * 0.6, { accent: true, blur: 24, blurAlpha: 0.12 }),
+      this.makeTrain(rng() * vw, 300, 6, 70, 28, 3, 0x0d3550, 0x2a6a85, 0.35, 0.2, 1.2 + rng() * 0.6, { blur: 24, blurAlpha: 0.12 }),
     ];
     this.nearTrains = [
-      this.makeTrain(rng() * vw, 160, 6, 90, 34, 3, 0x102040, 0x55ffff, 0.8, 0.4, L3_TRAIN_SPEED_NEAR * (0.9 + rng() * 0.3), { blur: 40, blurAlpha: 0.20, near: true }),
-      this.makeTrain(rng() * vw, 440, 6, 90, 34, 3, 0x102040, 0x55ffff, 0.8, 0.4, L3_TRAIN_SPEED_NEAR * (0.9 + rng() * 0.3), { blur: 40, blurAlpha: 0.20, near: true }),
+      this.makeTrain(rng() * vw, 160, 6, 90, 34, 3, 0x102040, 0x3a8aa0, 0.45, 0.4, L3_TRAIN_SPEED_NEAR * (0.9 + rng() * 0.3), { blur: 40, blurAlpha: 0.20, near: true }),
+      this.makeTrain(rng() * vw, 440, 6, 90, 34, 3, 0x102040, 0x3a8aa0, 0.45, 0.4, L3_TRAIN_SPEED_NEAR * (0.9 + rng() * 0.3), { blur: 40, blurAlpha: 0.20, near: true }),
     ];
     this.sweepT = 0; // near-train light-sweep timer (ms)
 
