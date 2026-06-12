@@ -22,6 +22,7 @@ import { buildPlatformVisual } from '../entities/platformVisual.js';
 import { createCollectible, spawnPickupShards } from '../entities/collectible.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
+import TouchControls from '../ui/TouchControls.js';
 import level2MusicUrl from '../audio/level2_music.ogg';
 import Progression from '../utils/Progression.js';
 
@@ -242,6 +243,9 @@ export default class Level2 extends Phaser.Scene {
     this.player.canDoubleJump = true;
     this.player.canDash = true;
     this.player.hasAttack = false;
+    // Mobile on-screen buttons (renders only on touch devices; Player.js ORs
+    // its state with the keyboard; self-destroys on scene shutdown).
+    this.touchControls = new TouchControls(this);
     // NOTE: RimLightPipeline is intentionally NOT applied to the player — on the
     // sprite it produced a box artefact around the character. Kept for future use.
 
@@ -1156,8 +1160,8 @@ export default class Level2 extends Phaser.Scene {
 
   // --- Main loop ------------------------------------------------------------
   update(time, delta) {
-    // M toggles all SFX.
-    if (Phaser.Input.Keyboard.JustDown(this.mKey)) {
+    // M (or the touch MUTE button) toggles all SFX.
+    if (Phaser.Input.Keyboard.JustDown(this.mKey) || this.touchControls.mute.justDown) {
       SFX.toggleMute();
       if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
     }

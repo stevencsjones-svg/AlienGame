@@ -16,6 +16,7 @@ import DiegeticHUD from '../ui/DiegeticHUD.js';
 import DataNoise from '../fx/DataNoise.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
+import TouchControls from '../ui/TouchControls.js';
 import CameraController from '../camera/CameraController.js';
 import PaletteManager from '../utils/PaletteManager.js';
 import LivingBackground from '../background/LivingBackground.js';
@@ -233,6 +234,9 @@ export default class Game extends Phaser.Scene {
 
     // ---- Player ----
     this.player = new Player(this, PLAYER.SPAWN_X, PLAYER.SPAWN_Y);
+    // Mobile on-screen buttons (renders only on touch devices; Player.js ORs
+    // its state with the keyboard; self-destroys on scene shutdown).
+    this.touchControls = new TouchControls(this);
     // NOTE: RimLightPipeline is intentionally NOT applied to the player. On the
     // sprite it rimmed the rectangular frame bounds, producing a visible box
     // artefact around the character. The pipeline file is kept for future use.
@@ -1236,8 +1240,8 @@ export default class Game extends Phaser.Scene {
 
   // ---- Main loop --------------------------------------------------------------
   update(time, delta) {
-    // M toggles all audio (SFX + music) via the single SFX.enabled source.
-    if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.m)) {
+    // M (or the touch MUTE button) toggles all audio via SFX.enabled.
+    if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.m) || this.touchControls.mute.justDown) {
       SFX.toggleMute();
       if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
     }

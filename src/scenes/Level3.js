@@ -21,6 +21,7 @@ import { buildPlatformVisual } from '../entities/platformVisual.js';
 import { createCollectible, spawnPickupShards } from '../entities/collectible.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
+import TouchControls from '../ui/TouchControls.js';
 import level3MusicUrl from '../audio/level3_music.ogg';
 import Progression from '../utils/Progression.js';
 
@@ -225,6 +226,9 @@ export default class Level3 extends Phaser.Scene {
     this.player.canDoubleJump = true;
     this.player.canDash = true;
     this.player.hasAttack = true;
+    // Mobile on-screen buttons (renders only on touch devices; Player.js ORs
+    // its state with the keyboard; self-destroys on scene shutdown).
+    this.touchControls = new TouchControls(this);
 
     // ---- Checkpoint ----
     this.createCheckpoint();
@@ -1023,8 +1027,8 @@ export default class Level3 extends Phaser.Scene {
 
   // ---- Main loop ------------------------------------------------------------
   update(time, delta) {
-    // M toggles all audio (SFX + music) via the single SFX.enabled source.
-    if (Phaser.Input.Keyboard.JustDown(this.mKey)) {
+    // M (or the touch MUTE button) toggles all audio via SFX.enabled.
+    if (Phaser.Input.Keyboard.JustDown(this.mKey) || this.touchControls.mute.justDown) {
       SFX.toggleMute();
       if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
     }

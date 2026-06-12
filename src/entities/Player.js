@@ -142,8 +142,11 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     if (!this.inputEnabled) { this.body.setVelocityX(0); return; }
 
     const k = this.keys;
-    const left = k.left.isDown || k.a.isDown;
-    const right = k.right.isDown || k.d.isDown;
+    // Touch controls (mobile): scenes expose scene.touchControls; its states
+    // are inert false on desktop, so these ORs never change keyboard behavior.
+    const tc = this.scene.touchControls;
+    const left = k.left.isDown || k.a.isDown || (tc ? tc.left.isDown : false);
+    const right = k.right.isDown || k.d.isDown || (tc ? tc.right.isDown : false);
     const onFloor = this.body.blocked.down;
 
     // ---- Dash cooldown ----
@@ -204,7 +207,8 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     const jumpPressed =
       Phaser.Input.Keyboard.JustDown(k.up) ||
       Phaser.Input.Keyboard.JustDown(k.w) ||
-      Phaser.Input.Keyboard.JustDown(k.space);
+      Phaser.Input.Keyboard.JustDown(k.space) ||
+      (tc ? tc.jump.justDown : false);
 
     // Jump buffer: remember any jump press, then count it down.
     if (jumpPressed) this.jumpBuffer = PLAYER.JUMP_BUFFER;
@@ -243,23 +247,35 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     // both the first jump and the double jump (it only checks upward motion).
     // Jump is bound to several keys, so "released" = a jump key went up and
     // none remain held.
-    const jumpHeld = k.up.isDown || k.w.isDown || k.space.isDown;
+    const jumpHeld = k.up.isDown || k.w.isDown || k.space.isDown
+      || (tc ? tc.jump.isDown : false);
     const jumpKeyJustReleased =
       (Phaser.Input.Keyboard.JustUp(k.up) ||
         Phaser.Input.Keyboard.JustUp(k.w) ||
-        Phaser.Input.Keyboard.JustUp(k.space)) &&
+        Phaser.Input.Keyboard.JustUp(k.space) ||
+        (tc ? tc.jump.justUp : false)) &&
       !jumpHeld;
     if (jumpKeyJustReleased && this.body.velocity.y < 0) {
       this.body.setVelocityY(this.body.velocity.y * PLAYER.JUMP_CUT_MULTIPLIER);
     }
 
     // ---- Dash (SHIFT / X / C) ----
-    // Event-driven: handled by the keydown listener registered in the
-    // constructor (_onDashKeyDown), not polled here — see the sticky-Shift
+    // Keyboard is event-driven: handled by the keydown listener registered in
+    // the constructor (_onDashKeyDown), not polled here — see the sticky-Shift
     // fix notes there. Physics, cooldown and the HUD bar are unchanged.
+    // Touch DASH button (single-frame edge, mirrors the keyboard handler):
+    if (tc && tc.dash.justDown) {
+      if (!this.canDash && !this.dashHintShown && this.x > 1200) {
+        this.dashHintShown = true;
+        this.showAbilityHint('DASH — FIND THE UPGRADE');
+      }
+      this.doDash(); // no-ops while locked / cooling down
+    }
 
     // ---- Attack (gated by the attack ability) ----
-    if (this.hasAttack && Phaser.Input.Keyboard.JustDown(k.z) && !this.attackActive) {
+    if (this.hasAttack
+      && (Phaser.Input.Keyboard.JustDown(k.z) || (tc ? tc.attack.justDown : false))
+      && !this.attackActive) {
       this.attack();
     }
 

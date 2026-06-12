@@ -17,6 +17,7 @@ import { createCollectible, spawnPickupShards } from '../entities/collectible.js
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import ChromaticAberrationPipeline from '../pipelines/ChromaticAberrationPipeline.js';
 import SFX from '../audio/SFX.js';
+import TouchControls from '../ui/TouchControls.js';
 import Progression from '../utils/Progression.js';
 import {
   W, H, FLOOR_Y, DEATH_Y, PORTAL, SHIELD, CHECKPOINT,
@@ -116,6 +117,9 @@ export default class Level4 extends Phaser.Scene {
     this.player.canDoubleJump = true;
     this.player.canDash = true;
     this.player.hasAttack = true;
+    // Mobile on-screen buttons (renders only on touch devices; Player.js ORs
+    // its state with the keyboard; self-destroys on scene shutdown).
+    this.touchControls = new TouchControls(this);
 
     // ---- Checkpoint (west end of Bridge 1) ----
     this.createCheckpoint(CHECKPOINT.x, CHECKPOINT.y);
@@ -184,15 +188,32 @@ export default class Level4 extends Phaser.Scene {
   // ===========================================================================
   buildBackground() {
     const vh = this.scale.height;
+    const vw = this.scale.width;
     const camMax = H - vh;
+    const camMaxX = W - vw;
+    // Effective spans PER AXIS: a scrollFactor-sf object only ever renders when
+    // its world coord is inside [0, camScrollMax*sf + viewport]. Content placed
+    // beyond that (e.g. x spread over the full 8000 world width) can NEVER
+    // appear on screen — which is exactly the "flat void" bug this fixes.
     this.spanA = camMax * 0.15 + vh;
     this.spanB = camMax * 0.4 + vh;
     this.spanC = camMax * 0.7 + vh;
+    this.spanAX = camMaxX * 0.15 + vw;
+    this.spanBX = camMaxX * 0.4 + vw;
+    this.spanCX = camMaxX * 0.7 + vw;
+    this.spanSunX = camMaxX * 0.08 + vw;
+    // Per-layer STREET LINE: the layer-space y that renders at the same screen
+    // position as the world floor (FLOOR_Y) when the camera rests at the bottom
+    // of the climb. Towers/vendors anchor their bases here so they read as
+    // buildings ON the ground, not silhouettes floating mid-air.
+    this.groundA = FLOOR_Y - camMax * (1 - 0.15);
+    this.groundB = FLOOR_Y - camMax * (1 - 0.4);
+    this.groundC = FLOOR_Y - camMax * (1 - 0.7);
 
     this.buildHaze();
     this.buildSun();
-    this.buildTowerSkyline(this.spanA, PAL.TOWER_FAR, 0.15, -18, [0.85, 1.1]);
-    this.buildTowerSkyline(this.spanB, PAL.TOWER_MID, 0.4, -14, [1.1, 1.7]);
+    this.buildTowerSkyline(this.groundA, this.spanAX, PAL.TOWER_FAR, 0.15, -18, [0.85, 1.1]);
+    this.buildTowerSkyline(this.groundB, this.spanBX, PAL.TOWER_MID, 0.4, -14, [1.1, 1.7]);
     this.buildNearStreet(); // Layer C: vendors + cables + signs + warm pockets
     this.buildLandmarks();
     this.buildBirds();
@@ -211,7 +232,9 @@ export default class Level4 extends Phaser.Scene {
   // SUN — pale-bright disc high in the span (sf 0.08) + halo pulse + god-ray
   // beams (slow rotation drift) + a faint band + drifting silhouette clouds.
   buildSun() {
-    const sx = 6000;
+    // Placed inside the sf-0.08 effective x span (~[0, spanSunX]) so the disc
+    // is actually reachable by the camera — at x6000 it could never render.
+    const sx = this.spanSunX * 0.62;
     const sy = 360;
     const sf = 0.08;
     // God rays — long faint triangles fanning from the sun, drifting in rotation.
@@ -238,18 +261,21 @@ export default class Level4 extends Phaser.Scene {
     }
   }
 
-  // A jagged, overlapping skyline: towers placed along the span at jittered x +
-  // y (never grid-aligned), widths varied 2-3x, cycling 5 archetypes.
-  buildTowerSkyline(span, fill, sf, depth, widthScale) {
-    const count = Math.ceil(span / 360) + 8; // dense enough to fill every view
+  // A jagged, overlapping skyline ROOTED TO THE GROUND: every tower's base sits
+  // on the layer's street line (groundY) and extends upward — buildings, not
+  // floating silhouettes. x is distributed over the layer's EFFECTIVE x span
+  // (spanX, not the world width); widths vary 2-3x; 5 archetypes cycle. Heights
+  // run ~20%..85% of the viewport so the skyline stays jagged.
+  buildTowerSkyline(groundY, spanX, fill, sf, depth, widthScale) {
+    const vh = this.scale.height;
+    const count = Math.ceil(spanX / 150); // dense enough to overlap at every view
     for (let i = 0; i < count; i += 1) {
-      const x = Phaser.Math.Between(0, W);
-      const y = Phaser.Math.Clamp((span / count) * i + Phaser.Math.Between(-220, 220), 40, span);
+      const x = (spanX / count) * (i + 0.5) + Phaser.Math.Between(-90, 90);
       const w = Phaser.Math.Between(120, 300) * Phaser.Math.FloatBetween(widthScale[0], widthScale[1]);
-      const h = Phaser.Math.Between(420, 1100);
-      const top3 = y < span * 0.34;
-      const type = top3 ? Phaser.Math.Between(1, 2) : Phaser.Math.Between(1, 5); // crowns/antennas up top
-      this.makeArchetypeTower(x, y, w, h, fill, sf, depth, type, top3);
+      const h = Phaser.Math.Between(Math.round(vh * 0.2), Math.round(vh * 0.85));
+      const tall = h > vh * 0.6; // the tallest towers carry antenna crowns
+      const type = tall ? Phaser.Math.Between(1, 2) : Phaser.Math.Between(1, 5);
+      this.makeArchetypeTower(x, groundY, w, h, fill, sf, depth, type, tall);
     }
   }
 
@@ -337,31 +363,36 @@ export default class Level4 extends Phaser.Scene {
   // Layer C — the lived-in street: vendors (warm pockets), cables, neon signs.
   buildNearStreet() {
     const span = this.spanC;
-    // Vendors — densest in the bottom third, each anchoring a warm pocket.
-    const vendorYs = [];
-    for (let i = 0; i < 10; i += 1) vendorYs.push(span * (0.6 + 0.4 * (i / 10)));
-    for (let i = 0; i < 5; i += 1) vendorYs.push(span * (0.3 + 0.3 * (i / 5)));
-    for (let i = 0; i < 2; i += 1) vendorYs.push(span * (0.05 + 0.22 * (i / 2)));
-    vendorYs.forEach((vy, i) => {
-      const vx = Phaser.Math.Between(220, W - 220);
-      this.makeVendor(vx, vy + Phaser.Math.Between(-50, 50), i % 2 === 0);
+    // Vendors — ALL at street level (bases on the layer's ground line, stalls
+    // in front of the rooted towers), spread evenly across the effective x
+    // span so the spawn view opens onto a market street. Each anchors a warm
+    // pocket. (Their old y-scatter put nearly all of them outside the visible
+    // parallax band at spawn — the "no vendors" bug.)
+    const VENDORS = 17;
+    const vy = this.groundC - 14; // stall base (origin 0.5,0; 14px tall) sits ON the line
+    for (let i = 0; i < VENDORS; i += 1) {
+      const vx = Phaser.Math.Clamp(
+        (this.spanCX / VENDORS) * (i + 0.5) + Phaser.Math.Between(-120, 120),
+        220, this.spanCX - 220,
+      );
+      this.makeVendor(vx, vy, i % 2 === 0);
       this.makeWarmPocket(vx, vy); // amber pocket near every stall
-    });
+    }
     // Cables (dense web, more toward the bottom).
     for (let i = 0; i < 12; i += 1) {
-      this.makeCable(Phaser.Math.Between(150, W - 1100), span * (0.2 + 0.8 * (i / 12)), 0.7, -9);
+      this.makeCable(Phaser.Math.Between(150, this.spanCX - 1100), span * (0.2 + 0.8 * (i / 12)), 0.7, -9);
     }
     // Front neon signs spread up the span.
     const accents = [PAL.NEON_WARM, PAL.NEON_CYAN, PAL.NEON_PINK, PAL.NEON_BLUE, PAL.NEON_CYAN];
     for (let i = 0; i < 18; i += 1) {
       const y = (span / 18) * (i + 0.5) + Phaser.Math.Between(-120, 120);
-      this.makeNeonSign(Phaser.Math.Between(300, W - 300), y, 0.7, -8, GLYPHS[(i + 3) % GLYPHS.length], accents[i % accents.length], (i + 1) % 4, 1.0);
+      this.makeNeonSign(Phaser.Math.Between(300, this.spanCX - 300), y, 0.7, -8, GLYPHS[(i + 3) % GLYPHS.length], accents[i % accents.length], (i + 1) % 4, 1.0);
     }
     // Mid-layer neon billboards (animated) so every view has ≥2 signs.
     for (let i = 0; i < 14; i += 1) {
       const y = (this.spanB / 14) * (i + 0.5) + Phaser.Math.Between(-120, 120);
       const mid = y > this.spanB * 0.33 && y < this.spanB * 0.66;
-      this.makeNeonSign(Phaser.Math.Between(300, W - 300), y, 0.4, -12, GLYPHS[i % GLYPHS.length], [PAL.NEON_CYAN, PAL.NEON_WARM, PAL.NEON_PINK, PAL.NEON_BLUE][i % 4], i % 4, mid ? 1.6 : 1.0);
+      this.makeNeonSign(Phaser.Math.Between(300, this.spanBX - 300), y, 0.4, -12, GLYPHS[i % GLYPHS.length], [PAL.NEON_CYAN, PAL.NEON_WARM, PAL.NEON_PINK, PAL.NEON_BLUE][i % 4], i % 4, mid ? 1.6 : 1.0);
     }
   }
 
@@ -387,7 +418,7 @@ export default class Level4 extends Phaser.Scene {
 
   makeCableCar(y) {
     const sf = 0.4; const depth = -13;
-    const x0 = 600; const x1 = W - 600; const y0 = y + 220; const y1 = y - 220;
+    const x0 = 400; const x1 = this.spanBX - 400; const y0 = y + 220; const y1 = y - 220;
     const g = this.add.graphics().setScrollFactor(sf).setDepth(depth);
     g.lineStyle(2, PAL.TOWER_EDGE, 0.6); g.lineBetween(x0, y0, x1, y1);
     for (let i = 0; i < 3; i += 1) {
@@ -404,7 +435,7 @@ export default class Level4 extends Phaser.Scene {
   }
 
   makeMegaBillboard(y) {
-    const sf = 0.4; const depth = -12; const x = Phaser.Math.Between(2200, W - 2200);
+    const sf = 0.4; const depth = -12; const x = Phaser.Math.Between(800, this.spanBX - 800);
     const bw = 360; const bh = 200;
     const panel = this.add.rectangle(x, y, bw, bh, PAL.VENDOR_BODY, 0.92).setStrokeStyle(2, PAL.NEON_PINK, 0.7).setScrollFactor(sf).setDepth(depth);
     const letters = [];
@@ -416,7 +447,7 @@ export default class Level4 extends Phaser.Scene {
   }
 
   makeRotatingSign(y) {
-    const sf = 0.7; const depth = -8; const x = Phaser.Math.Between(1000, W - 1000);
+    const sf = 0.7; const depth = -8; const x = Phaser.Math.Between(600, this.spanCX - 600);
     const R = 90;
     const ring = this.add.container(x, y, []).setScrollFactor(sf).setDepth(depth);
     const panels = 8;
@@ -438,11 +469,11 @@ export default class Level4 extends Phaser.Scene {
     const banner = this.add.text(0, 0, 'V0ID·N-7', { fontFamily: 'monospace', fontSize: '20px', color: hex(PAL.NEON_CYAN), fontStyle: 'bold' }).setOrigin(0.5);
     blimp.add(banner);
     this.tweens.add({ targets: banner, alpha: { from: 0.4, to: 1 }, duration: 500, yoyo: true, repeat: -1 });
-    this.tweens.add({ targets: blimp, x: W + 300, duration: 60000, repeat: -1, ease: 'Linear' });
+    this.tweens.add({ targets: blimp, x: this.spanAX + 300, duration: 30000, repeat: -1, ease: 'Linear' });
   }
 
   makeLanternGarden(y) {
-    const sf = 0.7; const depth = -8.5; const x = Phaser.Math.Between(800, W - 1400);
+    const sf = 0.7; const depth = -8.5; const x = Phaser.Math.Between(400, this.spanCX - 800);
     for (let s = 0; s < 3; s += 1) {
       const sy = y + s * 26;
       const sxn = x + s * 40;
@@ -461,7 +492,7 @@ export default class Level4 extends Phaser.Scene {
   }
 
   makeSteamVents(y) {
-    const sf = 0.4; const depth = -12.5; const baseX = Phaser.Math.Between(1500, W - 1500);
+    const sf = 0.4; const depth = -12.5; const baseX = Phaser.Math.Between(600, this.spanBX - 1300);
     for (let v = 0; v < 4; v += 1) {
       const vx = baseX + v * 220;
       this.add.rectangle(vx, y, 16, 10, PAL.JUNCTION, 1).setScrollFactor(sf).setDepth(depth);
@@ -569,9 +600,15 @@ export default class Level4 extends Phaser.Scene {
       const b = free[i];
       const sf = Math.random() < 0.5 ? 0.4 : 0.7;
       b.setScrollFactor(sf).setDepth(sf < 0.5 ? -11 : -7.5);
-      const y = baseY / sf + Phaser.Math.Between(-30, 30);
-      const startX = dir > 0 ? -40 : W + 40;
-      const endX = dir > 0 ? W + 60 : -60;
+      // Parallax mapping: an sf object renders at screenY = worldY - scrollY*sf,
+      // so to land at screen offset (baseY - scrollY) its worldY must be
+      // (baseY - scrollY) + scrollY*sf. (The old baseY/sf put birds ~2.5 world
+      // heights below the map.) Same mapping for x: cross the CURRENT view.
+      const y = (baseY - cam.scrollY) + cam.scrollY * sf + Phaser.Math.Between(-30, 30);
+      const viewX = cam.scrollX * sf;
+      const vw = this.scale.width;
+      const startX = dir > 0 ? viewX - 60 : viewX + vw + 60;
+      const endX = dir > 0 ? viewX + vw + 80 : viewX - 80;
       b.setPosition(startX, y).setScale(dir, 1).setActive(true).setVisible(true);
       this.tweens.add({ targets: b, x: endX, duration: Phaser.Math.Between(7000, 12000), ease: 'Linear', delay: i * Phaser.Math.Between(120, 300), y: y + Phaser.Math.Between(-40, 40), onComplete: () => { b.setActive(false).setVisible(false); } });
     }
@@ -837,7 +874,7 @@ export default class Level4 extends Phaser.Scene {
 
   // ---- Main loop ------------------------------------------------------------
   update(time, delta) {
-    if (Phaser.Input.Keyboard.JustDown(this.mKey)) SFX.toggleMute();
+    if (Phaser.Input.Keyboard.JustDown(this.mKey) || this.touchControls.mute.justDown) SFX.toggleMute();
 
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
       if (this.isPaused && this.pauseMode === 'assist') this._closeAssistOverlay();
