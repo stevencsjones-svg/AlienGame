@@ -1,2 +1,7 @@
 node_modules
 dist
+
+# local build/publish artifacts (never commit)
+alien_city_itch.zip
+itch_page.txt
+alien_city_backlog.docx
