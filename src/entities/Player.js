@@ -75,7 +75,56 @@ export default class Player extends Phaser.GameObjects.Rectangle {
       space: 'SPACE', shift: 'SHIFT', z: 'Z',
     });
     // Stop the browser from scrolling when these keys are pressed.
-    kb.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,SHIFT,W,A,S,D,Z');
+    kb.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,SHIFT,W,A,S,D,Z,X,C');
+
+    // ---- Dash trigger: EVENT-driven (keydown), not isDown polling ------------
+    // Fixes the "sticky Shift" itch.io bug: a Shift held when the tab lost focus
+    // never got its keyup, so polling saw it down forever. The dash now fires on
+    // the leading edge of a physical keydown only (event.repeat filtered), on
+    // SHIFT or the alternate bindings X / C. Wall-clock (Date.now) is used for
+    // the post-refocus grace window so Assist Mode's physics timeScale can't
+    // stretch it.
+    this.dashIgnoreUntil = 0; // Date.now() ms; dash input ignored before this
+    this._onDashKeyDown = (event) => {
+      if (event.repeat) return;                       // ignore OS key auto-repeat
+      if (Date.now() < this.dashIgnoreUntil) return;  // post-refocus grace (200ms)
+      if (this.isDead || this.frozen || !this.inputEnabled) return;
+      if (this.scene.physics.world.isPaused) return;  // pause menu / hit-pause
+      if (!this.canDash && !this.dashHintShown && this.x > 1200) {
+        this.dashHintShown = true;
+        this.showAbilityHint('DASH — FIND THE UPGRADE');
+      }
+      this.doDash(); // no-ops while locked / cooling down (see doDash)
+    };
+    kb.on('keydown-SHIFT', this._onDashKeyDown);
+    kb.on('keydown-X', this._onDashKeyDown);
+    kb.on('keydown-C', this._onDashKeyDown);
+
+    // ---- Stale-key-state guards on focus loss --------------------------------
+    // Any way the page can stop receiving keyups (tab switch, window blur, OS
+    // dialogs from Shift-mashing / sticky-keys prompts, cursor leaving the
+    // canvas) resets all tracked keys so nothing reads as held forever.
+    this._resetKeys = () => { if (this.scene) this.scene.input.keyboard.resetKeys(); };
+    this._onWindowBlur = () => this._resetKeys();
+    this._onWindowFocus = () => {
+      this._resetKeys();
+      this.dashIgnoreUntil = Date.now() + 200; // swallow the first 200ms of dash input
+    };
+    this._onVisibilityChange = () => { if (document.hidden) this._resetKeys(); };
+    this._onCanvasMouseLeave = () => this._resetKeys();
+    window.addEventListener('blur', this._onWindowBlur);
+    window.addEventListener('focus', this._onWindowFocus);
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
+    scene.game.canvas.addEventListener('mouseleave', this._onCanvasMouseLeave);
+    // Scene keyboard listeners die with the scene's input plugin on shutdown;
+    // the window/document/canvas listeners must be removed by hand (restart,
+    // back-to-menu) or each run would stack another set.
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      window.removeEventListener('blur', this._onWindowBlur);
+      window.removeEventListener('focus', this._onWindowFocus);
+      document.removeEventListener('visibilitychange', this._onVisibilityChange);
+      scene.game.canvas.removeEventListener('mouseleave', this._onCanvasMouseLeave);
+    });
   }
 
   update(time, delta) {
@@ -204,15 +253,10 @@ export default class Player extends Phaser.GameObjects.Rectangle {
       this.body.setVelocityY(this.body.velocity.y * PLAYER.JUMP_CUT_MULTIPLIER);
     }
 
-    // ---- Dash (Shift) ----
-    if (Phaser.Input.Keyboard.JustDown(k.shift)) {
-      if (!this.canDash && !this.dashHintShown && this.x > 1200) {
-        // Pressed dash before finding the upgrade (Zone 2+): one subtle hint.
-        this.dashHintShown = true;
-        this.showAbilityHint('DASH — FIND THE UPGRADE');
-      }
-      this.doDash(); // no-ops while locked (see doDash)
-    }
+    // ---- Dash (SHIFT / X / C) ----
+    // Event-driven: handled by the keydown listener registered in the
+    // constructor (_onDashKeyDown), not polled here — see the sticky-Shift
+    // fix notes there. Physics, cooldown and the HUD bar are unchanged.
 
     // ---- Attack (gated by the attack ability) ----
     if (this.hasAttack && Phaser.Input.Keyboard.JustDown(k.z) && !this.attackActive) {
@@ -281,8 +325,8 @@ export default class Player extends Phaser.GameObjects.Rectangle {
   }
 
   // ---- Dash ------------------------------------------------------------------
-  // Dash in the current facing direction (Shift), respecting the cooldown.
-  // Silently does nothing until the dash ability is unlocked.
+  // Dash in the current facing direction (SHIFT / X / C), respecting the
+  // cooldown. Silently does nothing until the dash ability is unlocked.
   doDash() {
     if (!this.canDash) return;
     if (this.isDashing || this.dashCooldown > 0 || this.frozen || this.isDead) return;

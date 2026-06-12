@@ -763,7 +763,7 @@ export default class Game extends Phaser.Scene {
     // a single jump from the ground. Dash (2480,750) sits on platform [2480,760].
     this.abilityPickups = [
       new AbilityPickup(this, 1350, 670, 'doubleJump', 'DOUBLE JUMP', 'Press jump again in mid-air'),
-      new AbilityPickup(this, 2480, 750, 'dash', 'DASH', 'Hold Shift to dash forward'),
+      new AbilityPickup(this, 2480, 750, 'dash', 'DASH', 'SHIFT / X / C — dash forward'),
     ];
   }
 
