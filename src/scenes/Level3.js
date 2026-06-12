@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {
-  PLAYER, ENEMY, DEV_MODE, ASSIST_MODE,
+  PLAYER, ENEMY, DEV_MODE, ASSIST_MODE, MUSIC_VOLUME,
   HIDDEN_COLLECTIBLE_COUNT, HIDDEN_COLLECTIBLE_COLOR,
   PLAYER_SPEED_L3_BASE, L3_PALETTE_SHIFT_X, L3_PALETTE_SHIFT_DURATION,
   L3_TRAIN_SPEED_MID, L3_TRAIN_SPEED_NEAR,
@@ -21,6 +21,7 @@ import { buildPlatformVisual } from '../entities/platformVisual.js';
 import { createCollectible, spawnPickupShards } from '../entities/collectible.js';
 import { makeGlassPanel } from '../ui/glassPanel.js';
 import SFX from '../audio/SFX.js';
+import level3MusicUrl from '../audio/level3_music.ogg';
 import Progression from '../utils/Progression.js';
 
 // =============================================================================
@@ -131,6 +132,13 @@ const SECRETS = [[6900, 2620], [12400, 2560]];                    // 2 hidden (o
 export default class Level3 extends Phaser.Scene {
   constructor() {
     super('Level3');
+  }
+
+  preload() {
+    // Background music (idempotent — the cache key is reused across restarts).
+    if (!this.cache.audio.exists('level3_music')) {
+      this.load.audio('level3_music', level3MusicUrl);
+    }
   }
 
   create() {
@@ -269,6 +277,15 @@ export default class Level3 extends Phaser.Scene {
     // ---- HUD ----
     this.diegeticHUD = new DiegeticHUD(this, this.player);
     if (!this.scene.isActive('UI')) this.scene.launch('UI');
+
+    // ---- Background music (loops; muted in lockstep with SFX via the M key) ----
+    this.bgMusic = this.sound.add('level3_music', { loop: true, volume: MUSIC_VOLUME });
+    this.bgMusic.setMute(!SFX.enabled); // honour the existing audio toggle
+    this.bgMusic.play();
+    // Safety net: stop the music on any scene shutdown so it can't bleed across.
+    this.events.once('shutdown', () => {
+      if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
+    });
 
     // ---- Camera (CameraController, horizontal follow) ----
     this.cameraController = new CameraController(this, this.cameras.main, 'horizontal');
@@ -766,6 +783,7 @@ export default class Level3 extends Phaser.Scene {
           .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
         this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
         this.input.keyboard.once('keydown-SPACE', () => {
+          if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
           this.cameras.main.fadeOut(500, 0, 0, 0);
           this.cameras.main.once('camerafadeoutcomplete', () => {
             this.scene.stop('UI');
@@ -910,6 +928,7 @@ export default class Level3 extends Phaser.Scene {
         this._openAssistOverlay();
       } else {
         this.physics.resume(); this.tweens.resumeAll(); this.time.paused = false; this.isPaused = false;
+        if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
         this.cameras.main.fadeOut(400, 0, 0, 0);
         this.cameras.main.once('camerafadeoutcomplete', () => {
           this.scene.stop('UI');
@@ -1004,7 +1023,11 @@ export default class Level3 extends Phaser.Scene {
 
   // ---- Main loop ------------------------------------------------------------
   update(time, delta) {
-    if (Phaser.Input.Keyboard.JustDown(this.mKey)) SFX.toggleMute();
+    // M toggles all audio (SFX + music) via the single SFX.enabled source.
+    if (Phaser.Input.Keyboard.JustDown(this.mKey)) {
+      SFX.toggleMute();
+      if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
+    }
 
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
       if (this.isPaused && this.pauseMode === 'assist') this._closeAssistOverlay();
