@@ -54,7 +54,10 @@ export default class UI extends Phaser.Scene {
 
   // Whichever gameplay scene is currently running.
   gameplayScene() {
-    if (this.scene.isActive('Level2')) return this.scene.get('Level2');
+    const keys = ['Level4', 'Level3', 'Level2', 'Game'];
+    for (let i = 0; i < keys.length; i += 1) {
+      if (this.scene.isActive(keys[i])) return this.scene.get(keys[i]);
+    }
     return this.scene.get('Game');
   }
 

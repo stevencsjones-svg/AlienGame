@@ -68,10 +68,11 @@ export default class MainMenu extends Phaser.Scene {
       { label: 'LEVEL 1   ALIEN CITY', scene: 'Game', requires: 0 },
       { label: 'LEVEL 2   THE DESCENT', scene: 'Level2', requires: 1 },
       { label: 'LEVEL 3   TRANSIT NETWORK', scene: 'Level3', requires: 2 },
+      { label: 'LEVEL 4   MARKET TOWERS', scene: 'Level4', requires: 3 },
     ];
     this.selectedIndex = 0;
     this.levelTexts = this.levels.map((lvl, i) => this.add
-      .text(cx, cy + 120 + i * 28, lvl.label, {
+      .text(cx, cy + 112 + i * 26, lvl.label, {
         fontFamily: 'monospace', fontSize: '16px', color: '#00ff88',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11)

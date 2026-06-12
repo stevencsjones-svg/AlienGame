@@ -436,19 +436,19 @@ export const L3_TRAIN_SPEED_NEAR = 2.4;
 // ---- Level 4: Market Towers (Deep Blue #3366ff base, raised luminance) -------
 // All Level 4 background colours live here (the scene uses no inline hex).
 export const LEVEL4_PALETTE = {
-  BG: 0x0a1a3e,            // base fill (brighter than L1–L3 darks)
-  AMBIENT: 0x1c2f60,
-  HAZE: 0x3a5fb0,          // bright blue haze gradient
-  HAZE_HI: 0x5a82d8,       // brighter haze band
-  // Parallax tower fills (back -> front, deep-blue family, rising luminance)
-  TOWER_FAR: 0x16294f,
-  TOWER_MID: 0x1f3a72,
-  TOWER_NEAR: 0x274a92,
-  TOWER_EDGE: 0x4f7fe0,    // lit tower top edge
-  // Lit windows
-  WINDOW_COOL: 0x8fcfff,
-  WINDOW_WARM: 0xffd9a0,
-  WINDOW_OFF: 0x0e1c3a,
+  BG: 0x0c2150,            // base fill (notably brighter than L1–L3 darks)
+  AMBIENT: 0x24407e,
+  HAZE: 0x4a76c8,          // bright blue haze gradient
+  HAZE_HI: 0x6c92e2,       // brighter haze band
+  // Parallax tower fills (back -> front, deep-blue family, clearly above the bg)
+  TOWER_FAR: 0x244680,
+  TOWER_MID: 0x2f5aa4,
+  TOWER_NEAR: 0x3a66b4,
+  TOWER_EDGE: 0x88b4ff,    // bright lit tower top edge
+  // Lit windows (bright)
+  WINDOW_COOL: 0xaae2ff,
+  WINDOW_WARM: 0xffe4b4,
+  WINDOW_OFF: 0x122a55,
   // Neon accents (used sparingly so blue still dominates)
   NEON_BLUE: 0x4c8cff,
   NEON_CYAN: 0x55ffff,
@@ -465,6 +465,16 @@ export const LEVEL4_PALETTE = {
   LANTERN: 0xff8855,
   JUNCTION: 0x1a2c55,
   BIRD: 0x12244a,
+  // Sun (pale-bright alien sun framing the summit) + rooftop/sky props
+  SUN_CORE: 0xf2f7ff,
+  SUN_GLOW: 0xbcd6ff,
+  SUN_HALO: 0x88b0f0,
+  SUN_BAND: 0xd6e6ff,
+  WARNING: 0xff5a4a,        // blinking aircraft-warning lights on tower tops
+  ANTENNA: 0x6f9fe0,        // rooftop antenna masts
+  CLOUD: 0x16306a,          // thin silhouette clouds drifting across the sun
+  GODRAY: 0xcfe2ff,         // faint sun god-ray beams
+  WARM_POCKET: 0xffb24a,    // warm amber pocket glow near vendor clusters
   // Gameplay platforms (kept bright + contrasting for readability)
   PLATFORM: 0x9fd0ff,
   PLATFORM_DIM: 0x16315e,
