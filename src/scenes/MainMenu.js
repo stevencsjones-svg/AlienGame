@@ -69,6 +69,7 @@ export default class MainMenu extends Phaser.Scene {
       { label: 'LEVEL 2   THE DESCENT', scene: 'Level2', requires: 1 },
       { label: 'LEVEL 3   TRANSIT NETWORK', scene: 'Level3', requires: 2 },
       { label: 'LEVEL 4   MARKET TOWERS', scene: 'Level4', requires: 3 },
+      { label: 'LEVEL 5   THE GLASS TIER', scene: 'Level5', requires: 4 },
     ];
     this.selectedIndex = 0;
     this.levelTexts = this.levels.map((lvl, i) => this.add
@@ -87,7 +88,7 @@ export default class MainMenu extends Phaser.Scene {
 
     // ---- Controls hint (blinks) ----
     const hint = this.add
-      .text(cx, cy + 216, '↑ ↓  SELECT       SPACE / ENTER  START', {
+      .text(cx, cy + 242, '↑ ↓  SELECT       SPACE / ENTER  START', {
         fontFamily: 'monospace', fontSize: '11px', color: '#ff6a00',
       })
       .setOrigin(0.5).setScrollFactor(0).setDepth(11);
