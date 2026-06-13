@@ -18,6 +18,11 @@ import Phaser from 'phaser';
 // for exactly one frame — cleared on the scene's POST_UPDATE — mirroring
 // Phaser's JustDown semantics so Player.js can OR them with keyboard state.
 //
+// FIX: hit rects are standalone scene objects (NOT inside containers) — Phaser
+// input coordinate transforms for scrollFactor-0 objects inside containers are
+// unreliable. Visuals live in the container; hit rect stays in the scene root
+// and is positioned in sync via layout().
+//
 // Consumers: Player.js ORs movement/jump/dash/attack; scenes poll mute.justDown
 // next to their M-key handling. destroy() is self-registered on scene shutdown.
 // =============================================================================
@@ -43,12 +48,12 @@ export default class TouchControls {
     scene.input.addPointer(3); // default is 2 pointers; allow LEFT+JUMP+more
 
     this.buttons = [
-      this.makeButton(this.left, (g, s) => this.drawArrow(g, s, -1)),
-      this.makeButton(this.right, (g, s) => this.drawArrow(g, s, 1)),
-      this.makeButton(this.jump, null, 'JUMP'),
-      this.makeButton(this.dash, null, 'DASH'),
+      this.makeButton(this.left,   (g, s) => this.drawArrow(g, s, -1)),
+      this.makeButton(this.right,  (g, s) => this.drawArrow(g, s,  1)),
+      this.makeButton(this.jump,   null, 'JUMP'),
+      this.makeButton(this.dash,   null, 'DASH'),
       this.makeButton(this.attack, null, 'ATK'),
-      this.makeButton(this.mute, null, '♪', 0.6),
+      this.makeButton(this.mute,   null, '♪', 0.6),
     ];
     this.layout();
 
@@ -67,8 +72,9 @@ export default class TouchControls {
     return { isDown: false, justDown: false, justUp: false };
   }
 
-  // One button: container [rounded-rect body+outline graphics, glyph, hit rect].
-  // The hit rect is the interactive surface; per-pointer events drive the state.
+  // One button: container holds visuals only. The hit rect is a STANDALONE
+  // scene object (not a container child) so Phaser's input coordinate transform
+  // works correctly for scrollFactor-0 screen-fixed elements.
   makeButton(state, drawGlyph, label, sizeMul = 1) {
     const s = BASE * sizeMul;
     const g = this.scene.add.graphics();
@@ -84,12 +90,16 @@ export default class TouchControls {
         fontFamily: 'monospace', fontSize: `${Math.round(14 * sizeMul)}px`, color: '#ffffff',
       }).setOrigin(0.5).setAlpha(0.7));
     }
-    const hit = this.scene.add.rectangle(0, 0, s, s, EDGE, 0.001)
-      .setInteractive({ useHandCursor: false });
-    parts.push(hit);
 
+    // Visuals container — no interactivity on it or its children.
     const container = this.scene.add.container(0, 0, parts)
       .setScrollFactor(0).setDepth(100).setAlpha(0.85);
+
+    // Standalone hit rect — lives in the scene root, NOT inside the container.
+    // Phaser reliably resolves input for top-level scrollFactor-0 objects.
+    const hit = this.scene.add.rectangle(0, 0, s, s, 0x000000, 0.001)
+      .setScrollFactor(0).setDepth(101)
+      .setInteractive();
 
     hit.on('pointerdown', () => {
       state.isDown = true;
@@ -101,10 +111,10 @@ export default class TouchControls {
       state.isDown = false;
       container.setAlpha(0.85);
     };
-    hit.on('pointerup', release);
+    hit.on('pointerup',  release);
     hit.on('pointerout', release); // finger slid off the button
 
-    return { state, container, size: s, sizeMul };
+    return { state, container, hit, size: s, sizeMul };
   }
 
   // Filled triangle arrow for LEFT (-1) / RIGHT (+1).
@@ -122,15 +132,19 @@ export default class TouchControls {
     const s = BASE * f;
     const pad = PAD * f;
     const gap = 10 * f;
-    const place = (btn, x, y) => btn.container.setPosition(x, y).setScale(f);
+    // Position both the visual container AND the standalone hit rect together.
+    const place = (btn, x, y) => {
+      btn.container.setPosition(x, y).setScale(f);
+      btn.hit.setPosition(x, y).setScale(f);
+    };
 
     const [left, right, jump, dash, attack, mute] = this.buttons;
-    place(left, pad + s / 2, vh - pad - s / 2);
-    place(right, pad + s * 1.5 + gap, vh - pad - s / 2);
-    place(jump, vw - pad - s / 2, vh - pad - s / 2);
-    place(dash, vw - pad - s * 1.5 - gap, vh - pad - s / 2);
-    place(attack, vw - pad - s / 2, vh - pad - s * 1.5 - gap);
-    place(mute, pad + (s * 0.6) / 2, pad + (s * 0.6) / 2);
+    place(left,   pad + s / 2,          vh - pad - s / 2);
+    place(right,  pad + s * 1.5 + gap,  vh - pad - s / 2);
+    place(jump,   vw - pad - s / 2,     vh - pad - s / 2);
+    place(dash,   vw - pad - s * 1.5 - gap, vh - pad - s / 2);
+    place(attack, vw - pad - s / 2,     vh - pad - s * 1.5 - gap);
+    place(mute,   pad + (s * 0.6) / 2,  pad + (s * 0.6) / 2);
   }
 
   destroy() {
@@ -138,6 +152,6 @@ export default class TouchControls {
     this.enabled = false;
     this.scene.scale.off('resize', this._onResize);
     this.scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this._clearEdges);
-    this.buttons.forEach((b) => b.container.destroy()); // children die with it
+    this.buttons.forEach((b) => { b.container.destroy(); b.hit.destroy(); });
   }
 }
