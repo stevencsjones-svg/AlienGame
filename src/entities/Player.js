@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { PLAYER, COLORS, SHIELD_INVINCIBILITY_MS, SHIELD_BREAK_SHAKE } from '../constants.js';
+import { PLAYER, COLORS, SHIELD_INVINCIBILITY_MS, SHIELD_BREAK_SHAKE, DEV_MODE } from '../constants.js';
 import PlayerVisuals from './PlayerVisuals.js';
 import SFX from '../audio/SFX.js';
 
@@ -78,22 +78,64 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     kb.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,SHIFT,W,A,S,D,Z,X,C');
 
     // ---- Dash trigger: EVENT-driven (keydown), not isDown polling ------------
-    // Fixes the "sticky Shift" itch.io bug: a Shift held when the tab lost focus
-    // never got its keyup, so polling saw it down forever. The dash now fires on
-    // the leading edge of a physical keydown only (event.repeat filtered), on
-    // SHIFT or the alternate bindings X / C. Wall-clock (Date.now) is used for
-    // the post-refocus grace window so Assist Mode's physics timeScale can't
-    // stretch it.
-    this.dashIgnoreUntil = 0; // Date.now() ms; dash input ignored before this
-    this._lastBlurTime = 0;   // track when the window last lost focus
+    // Fires on the leading edge of SHIFT / X / C (event.repeat filtered).
+    // Wall-clock (Date.now) is used for grace windows so physics timeScale can't
+    // stretch them.
+    //
+    // StickyKeys mitigation (Windows): pressing Shift 5 times in ~2 s triggers
+    // the OS StickyKeys dialog, stealing focus and stranding key state.
+    //   Primary fix  — during dash cooldown / active dash, event.preventDefault()
+    //     is called before returning.  On most Windows/Chrome combos this stops
+    //     the browser reporting the press to the OS, so rapid re-pressing during
+    //     cooldown never accumulates toward the 5-press trigger.
+    //   Last-resort  — dashPressCount counts ALL Shift arrivals.  Once 4
+    //     consecutive Shift presses are seen, shiftBlackoutUntil is armed for
+    //     1000ms (Shift only — X / C still work).
+    this.dashIgnoreUntil   = 0; // Date.now() ms; dash input ignored before this
+    this._lastBlurTime     = 0; // when the window last lost focus
+    this.dashPressCount    = 0; // consecutive Shift presses since last non-Shift dash key
+    this.shiftBlackoutUntil = 0; // Date.now() ms; Shift-only blackout (last-resort)
+
     this._onDashKeyDown = (event) => {
-      if (event.repeat) return;                       // ignore OS key auto-repeat
-      if (Date.now() < this.dashIgnoreUntil) return;  // post-refocus grace (200ms)
-      // On Chrome/Windows a held key can deliver keydown before the focus event,
-      // so dashIgnoreUntil may not be set yet. Guard against that race directly.
-      if (Date.now() - this._lastBlurTime < 250) return;
+      if (event.repeat) return; // ignore OS key auto-repeat
+
+      const isShift = event.code === 'ShiftLeft' || event.code === 'ShiftRight';
+
+      // ---- StickyKeys last-resort: Shift-only blackout ----
+      if (isShift) {
+        if (Date.now() < this.shiftBlackoutUntil) {
+          event.preventDefault();
+          if (DEV_MODE) console.log('[Dash] Shift blackout — StickyKeys prevention');
+          return;
+        }
+        this.dashPressCount += 1;
+        if (this.dashPressCount >= 4) {
+          this.shiftBlackoutUntil = Date.now() + 1000;
+          this.dashPressCount = 0;
+          event.preventDefault();
+          if (DEV_MODE) console.log('[Dash] Shift blackout — StickyKeys prevention');
+          return;
+        }
+      } else {
+        this.dashPressCount = 0; // X or C resets the Shift press streak
+      }
+
+      // ---- Primary StickyKeys fix: suppress presses during cooldown ----
+      // preventDefault() stops the browser from reporting the keypress to the OS
+      // on most Windows/Chrome combos, so rapid Shift mashing during cooldown
+      // never reaches the StickyKeys 5-press counter.
+      if (this.isDashing || this.dashCooldown > 0) {
+        event.preventDefault();
+        if (DEV_MODE && isShift) console.log('[Dash] Shift suppressed — cooldown active');
+        return;
+      }
+
+      // ---- Normal guards ----
+      if (Date.now() < this.dashIgnoreUntil) return;         // post-refocus grace
+      if (Date.now() - this._lastBlurTime < 250) return;     // keydown-before-focus race
       if (this.isDead || this.frozen || !this.inputEnabled) return;
-      if (this.scene.physics.world.isPaused) return;  // pause menu / hit-pause
+      if (this.scene.physics.world.isPaused) return;
+
       if (!this.canDash && !this.dashHintShown && this.x > 1200) {
         this.dashHintShown = true;
         this.showAbilityHint('DASH — FIND THE UPGRADE');
@@ -109,12 +151,18 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     // dialogs from Shift-mashing / sticky-keys prompts, cursor leaving the
     // canvas) resets all tracked keys so nothing reads as held forever.
     this._resetKeys = () => { if (this.scene) this.scene.input.keyboard.resetKeys(); };
-    this._onWindowBlur = () => { this._resetKeys(); this._lastBlurTime = Date.now(); };
+    this._onWindowBlur = () => {
+      this._resetKeys();
+      this._lastBlurTime = Date.now();
+      this.dashPressCount = 0; // streak is stale after focus loss
+    };
     this._onWindowFocus = () => {
       this._resetKeys();
       this.dashIgnoreUntil = Date.now() + 200; // swallow the first 200ms of dash input
     };
-    this._onVisibilityChange = () => { if (document.hidden) this._resetKeys(); };
+    this._onVisibilityChange = () => {
+      if (document.hidden) { this._resetKeys(); this.dashPressCount = 0; }
+    };
     this._onCanvasMouseLeave = () => this._resetKeys();
     window.addEventListener('blur', this._onWindowBlur);
     window.addEventListener('focus', this._onWindowFocus);
