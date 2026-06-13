@@ -297,7 +297,7 @@ export default class Level4 extends Phaser.Scene {
   }
 
   // One of 5 tower archetypes. Returns nothing; builds a parallax container.
-  makeArchetypeTower(x, y, w, h, fill, sf, depth, type, top3) {
+  makeArchetypeTower(x, y, w, h, fill, sf, depth, type, tall) {
     const parts = [];
     const edge = (cx, ty, cw) => parts.push(this.add.rectangle(cx, ty, cw, 4, PAL.TOWER_EDGE, 0.85).setOrigin(0.5, 0));
     const warning = [];
@@ -355,7 +355,7 @@ export default class Level4 extends Phaser.Scene {
     }
 
     this.add.container(x, y, parts).setScrollFactor(sf).setDepth(depth);
-    if (top3 && warning.length) {
+    if (tall && warning.length) {
       warning.forEach((wl) => this.time.addEvent({ delay: Phaser.Math.Between(700, 1100), loop: true, callback: () => wl.setAlpha(wl.alpha > 0.5 ? 0.15 : 1) }));
     }
   }
@@ -418,7 +418,7 @@ export default class Level4 extends Phaser.Scene {
 
   makeCableCar(y) {
     const sf = 0.4; const depth = -13;
-    const x0 = 400; const x1 = this.spanBX - 400; const y0 = y + 220; const y1 = y - 220;
+    const x0 = Math.round(this.spanBX * 0.1); const x1 = Math.round(this.spanBX * 0.9); const y0 = y + 220; const y1 = y - 220;
     const g = this.add.graphics().setScrollFactor(sf).setDepth(depth);
     g.lineStyle(2, PAL.TOWER_EDGE, 0.6); g.lineBetween(x0, y0, x1, y1);
     for (let i = 0; i < 3; i += 1) {
@@ -599,16 +599,13 @@ export default class Level4 extends Phaser.Scene {
     for (let i = 0; i < n; i += 1) {
       const b = free[i];
       const sf = Math.random() < 0.5 ? 0.4 : 0.7;
-      b.setScrollFactor(sf).setDepth(sf < 0.5 ? -11 : -7.5);
-      // Parallax mapping: an sf object renders at screenY = worldY - scrollY*sf,
-      // so to land at screen offset (baseY - scrollY) its worldY must be
-      // (baseY - scrollY) + scrollY*sf. (The old baseY/sf put birds ~2.5 world
-      // heights below the map.) Same mapping for x: cross the CURRENT view.
-      const y = (baseY - cam.scrollY) + cam.scrollY * sf + Phaser.Math.Between(-30, 30);
-      const viewX = cam.scrollX * sf;
+      // scrollFactor 0 = screen-space coords; fixes world-y drift as the camera
+      // scrolls during the 7-12 s tween (was visible 120-280 px vertical shift).
+      b.setScrollFactor(0).setDepth(sf < 0.5 ? -11 : -7.5);
       const vw = this.scale.width;
-      const startX = dir > 0 ? viewX - 60 : viewX + vw + 60;
-      const endX = dir > 0 ? viewX + vw + 80 : viewX - 80;
+      const y = (baseY - cam.scrollY) + Phaser.Math.Between(-30, 30); // screen-space y
+      const startX = dir > 0 ? -60 : vw + 60;
+      const endX = dir > 0 ? vw + 80 : -80;
       b.setPosition(startX, y).setScale(dir, 1).setActive(true).setVisible(true);
       this.tweens.add({ targets: b, x: endX, duration: Phaser.Math.Between(7000, 12000), ease: 'Linear', delay: i * Phaser.Math.Between(120, 300), y: y + Phaser.Math.Between(-40, 40), onComplete: () => { b.setActive(false).setVisible(false); } });
     }
@@ -874,7 +871,10 @@ export default class Level4 extends Phaser.Scene {
 
   // ---- Main loop ------------------------------------------------------------
   update(time, delta) {
-    if (Phaser.Input.Keyboard.JustDown(this.mKey) || this.touchControls.mute.justDown) SFX.toggleMute();
+    if (Phaser.Input.Keyboard.JustDown(this.mKey) || this.touchControls.mute.justDown) {
+      SFX.toggleMute();
+      if (this.bgMusic) this.bgMusic.setMute(!SFX.enabled);
+    }
 
     if (Phaser.Input.Keyboard.JustDown(this.pauseKeys.esc) && !this.levelDone) {
       if (this.isPaused && this.pauseMode === 'assist') this._closeAssistOverlay();

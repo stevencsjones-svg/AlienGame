@@ -47,6 +47,7 @@ export default class TouchControls {
 
     scene.input.addPointer(3); // default is 2 pointers; allow LEFT+JUMP+more
 
+    // Order must match the destructuring in layout(): left, right, jump, dash, attack, mute.
     this.buttons = [
       this.makeButton(this.left,   (g, s) => this.drawArrow(g, s, -1)),
       this.makeButton(this.right,  (g, s) => this.drawArrow(g, s,  1)),
@@ -59,10 +60,11 @@ export default class TouchControls {
 
     this._onResize = () => this.layout();
     scene.scale.on('resize', this._onResize);
+    // Cached state array — avoids a fresh allocation on every POST_UPDATE call.
+    this._states = [this.left, this.right, this.jump, this.dash, this.attack, this.mute];
     // Edge flags last exactly one frame.
     this._clearEdges = () => {
-      [this.left, this.right, this.jump, this.dash, this.attack, this.mute]
-        .forEach((st) => { st.justDown = false; st.justUp = false; });
+      this._states.forEach((st) => { st.justDown = false; st.justUp = false; });
     };
     scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this._clearEdges);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.destroy());
@@ -144,7 +146,7 @@ export default class TouchControls {
     place(jump,   vw - pad - s / 2,     vh - pad - s / 2);
     place(dash,   vw - pad - s * 1.5 - gap, vh - pad - s / 2);
     place(attack, vw - pad - s / 2,     vh - pad - s * 1.5 - gap);
-    place(mute,   pad + (s * 0.6) / 2,  pad + (s * 0.6) / 2);
+    place(mute,   pad + mute.size * f / 2, pad + mute.size * f / 2);
   }
 
   destroy() {

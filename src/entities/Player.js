@@ -72,7 +72,7 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     this.keys = kb.addKeys({
       up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT',
       w: 'W', a: 'A', s: 'S', d: 'D',
-      space: 'SPACE', shift: 'SHIFT', z: 'Z',
+      space: 'SPACE', z: 'Z',
     });
     // Stop the browser from scrolling when these keys are pressed.
     kb.addCapture('UP,DOWN,LEFT,RIGHT,SPACE,SHIFT,W,A,S,D,Z,X,C');
@@ -85,9 +85,13 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     // the post-refocus grace window so Assist Mode's physics timeScale can't
     // stretch it.
     this.dashIgnoreUntil = 0; // Date.now() ms; dash input ignored before this
+    this._lastBlurTime = 0;   // track when the window last lost focus
     this._onDashKeyDown = (event) => {
       if (event.repeat) return;                       // ignore OS key auto-repeat
       if (Date.now() < this.dashIgnoreUntil) return;  // post-refocus grace (200ms)
+      // On Chrome/Windows a held key can deliver keydown before the focus event,
+      // so dashIgnoreUntil may not be set yet. Guard against that race directly.
+      if (Date.now() - this._lastBlurTime < 250) return;
       if (this.isDead || this.frozen || !this.inputEnabled) return;
       if (this.scene.physics.world.isPaused) return;  // pause menu / hit-pause
       if (!this.canDash && !this.dashHintShown && this.x > 1200) {
@@ -105,7 +109,7 @@ export default class Player extends Phaser.GameObjects.Rectangle {
     // dialogs from Shift-mashing / sticky-keys prompts, cursor leaving the
     // canvas) resets all tracked keys so nothing reads as held forever.
     this._resetKeys = () => { if (this.scene) this.scene.input.keyboard.resetKeys(); };
-    this._onWindowBlur = () => this._resetKeys();
+    this._onWindowBlur = () => { this._resetKeys(); this._lastBlurTime = Date.now(); };
     this._onWindowFocus = () => {
       this._resetKeys();
       this.dashIgnoreUntil = Date.now() + 200; // swallow the first 200ms of dash input
@@ -255,7 +259,10 @@ export default class Player extends Phaser.GameObjects.Rectangle {
         Phaser.Input.Keyboard.JustUp(k.space) ||
         (tc ? tc.jump.justUp : false)) &&
       !jumpHeld;
-    if (jumpKeyJustReleased && this.body.velocity.y < 0) {
+    // Skip the cut when jumpPressed is also true this frame: a sub-frame touch tap
+    // sets both justDown and justUp simultaneously, so doJump() already fired above
+    // and cutting velocity immediately would produce a shorter-than-minimum hop.
+    if (jumpKeyJustReleased && !jumpPressed && this.body.velocity.y < 0) {
       this.body.setVelocityY(this.body.velocity.y * PLAYER.JUMP_CUT_MULTIPLIER);
     }
 
