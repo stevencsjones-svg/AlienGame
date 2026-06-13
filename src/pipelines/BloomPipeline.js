@@ -52,8 +52,8 @@ export default class BloomPipeline extends Phaser.Renderer.WebGL.Pipelines.PostF
         }
       `,
     });
-    this.uStrength = 1.8;
-    this.uThreshold = 0.35;
+    this.uStrength = 0.8;
+    this.uThreshold = 0.60;
   }
 
   onPreRender() {

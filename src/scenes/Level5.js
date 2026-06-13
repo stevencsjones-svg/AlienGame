@@ -101,6 +101,10 @@ export default class Level5 extends Phaser.Scene {
       this.cameras.main.setPostPipeline(ChromaticAberrationPipeline);
       this.cameras.main.setPostPipeline('CRTPipeline');
       this.cameras.main.setPostPipeline('ColorGradePipeline');
+      // Near-black bg + saturated violet neon needs stronger bloom than L1-4.
+      let bloom = this.cameras.main.getPostPipeline('BloomPipeline');
+      if (Array.isArray(bloom)) bloom = bloom[0];
+      if (bloom) { bloom.uStrength = 1.8; bloom.uThreshold = 0.25; }
     }
 
     // ---- DEV reachability check ----
