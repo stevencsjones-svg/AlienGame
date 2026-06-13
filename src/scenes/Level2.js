@@ -1139,13 +1139,9 @@ export default class Level2 extends Phaser.Scene {
         this.tweens.add({ targets: beat, alpha: 0.8, duration: 400 });
       });
 
-      // Continue prompt (after 1.5s; Space returns to the main menu).
+      // Continue prompt (after 1.5s; Space or tap returns to the main menu).
       this.time.delayedCall(1500, () => {
-        const cont = this.add
-          .text(cx, cy + 116, 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' })
-          .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
-        this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-        this.input.keyboard.once('keydown-SPACE', () => {
+        const doTransition = () => {
           if (this.bgMusic) { this.bgMusic.stop(); this.bgMusic = null; }
           this.cameras.main.fadeOut(500, 0, 0, 0);
           this.cameras.main.once('camerafadeoutcomplete', () => {
@@ -1153,7 +1149,16 @@ export default class Level2 extends Phaser.Scene {
             this.scene.start('MainMenu');
             this.scene.stop('Level2');
           });
-        });
+        };
+        const isTouchDevice = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        const cont = this.add
+          .text(cx, cy + 116, isTouchDevice ? 'TAP TO CONTINUE' : 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' })
+          .setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
+        this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        const tapHit = this.add.rectangle(cx, cy + 116, 280, 40, 0x000000, 0.001)
+          .setScrollFactor(0).setDepth(204).setInteractive();
+        tapHit.on('pointerdown', () => { tapHit.destroy(); doTransition(); });
+        this.input.keyboard.once('keydown-SPACE', () => { tapHit.destroy(); doTransition(); });
       });
     });
   }

@@ -702,12 +702,17 @@ export default class Level4 extends Phaser.Scene {
       const beat = this.add.text(cx, cy + 78, 'You break the skyline. The towers thin, the market falls away — and the light is finally close.', { fontFamily: 'monospace', fontSize: '11px', color: hex(PAL.NEON_CYAN), align: 'center' }).setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0);
       this.time.delayedCall(200, () => { this.tweens.add({ targets: beatDiv, alpha: 0.3, duration: 400 }); this.tweens.add({ targets: beat, alpha: 0.8, duration: 400 }); });
       this.time.delayedCall(1500, () => {
-        const cont = this.add.text(cx, cy + 116, 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
-        this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
-        this.input.keyboard.once('keydown-SPACE', () => {
+        const doTransition = () => {
           this.cameras.main.fadeOut(500, 0, 0, 0);
           this.cameras.main.once('camerafadeoutcomplete', () => { this.scene.stop('UI'); this.scene.start('MainMenu'); this.scene.stop('Level4'); });
-        });
+        };
+        const isTouchDevice = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+        const cont = this.add.text(cx, cy + 116, isTouchDevice ? 'TAP TO CONTINUE' : 'PRESS SPACE TO CONTINUE', { fontFamily: 'monospace', fontSize: '10px', color: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(203).setAlpha(0.4);
+        this.tweens.add({ targets: cont, alpha: { from: 0.15, to: 0.4 }, duration: 300, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+        const tapHit = this.add.rectangle(cx, cy + 116, 280, 40, 0x000000, 0.001)
+          .setScrollFactor(0).setDepth(204).setInteractive();
+        tapHit.on('pointerdown', () => { tapHit.destroy(); doTransition(); });
+        this.input.keyboard.once('keydown-SPACE', () => { tapHit.destroy(); doTransition(); });
       });
     });
   }
