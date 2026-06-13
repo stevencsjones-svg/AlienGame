@@ -482,6 +482,10 @@ export const LEVEL4_PALETTE = {
   WHITE: 0xffffff,
 };
 
+// ---- Level 5: Glass Tier (Violet) -------------------------------------------
+export const LEVEL5_WORLD = { WIDTH: 12000, HEIGHT: 5000 };
+export const LEVEL5_COLLECTIBLE_COUNT = 55; // 50 trail + 5 hidden
+
 // ---- Level 3 hazards: falling platforms + proximity mines --------------------
 export const FALLING_PLATFORM_SHAKE_MS = 800;
 export const FALLING_PLATFORM_FALL_ALPHA_MS = 600;

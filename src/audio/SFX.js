@@ -251,6 +251,16 @@ class SFX {
     this._retire(thud, 800);
   }
 
+  // Holo-platform activation — short violet hum, distinct from all other sounds.
+  holoActivate() {
+    if (!this._live()) return;
+    const synth = new Tone.PolySynth(Tone.Synth).toDestination();
+    synth.set({ oscillator: { type: 'sawtooth' }, envelope: { attack: 0.01, decay: 0.12, sustain: 0.02, release: 0.18 } });
+    synth.volume.value = -24;
+    this._t(synth, ['A3', 'E4'], '16n');
+    this._retire(synth, 600);
+  }
+
   // Continuous ambient hum for the exit portal. Returns a handle with stop().
   portalHum() {
     if (!this._live()) return { stop() {} };
